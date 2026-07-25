@@ -169,7 +169,8 @@ input, textarea, select {
     background: var(--accent-strong);
 }
 
-/* Fondo animado (mar japones) para paginas internas y con formularios */
+/* Fondo animado (mar japones): se ve en los costados; el centro queda sobre
+   una franja oscura continua con el color de siempre, para no recargar */
 body[data-bg="ocean"] {
     background: #0a0620;
 }
@@ -188,13 +189,25 @@ body[data-bg="ocean"] {
     object-fit: cover;
 }
 
+/* Tinte suave: deja ver el mar en los costados sin encandilar */
 .ocean-bg::after {
     content: "";
     position: absolute;
     inset: 0;
     background:
-        linear-gradient(180deg, rgba(13, 6, 44, 0.78) 0%, rgba(21, 0, 61, 0.82) 55%, rgba(10, 22, 65, 0.88) 100%),
-        radial-gradient(ellipse 55% 45% at 50% 10%, rgba(158, 76, 158, 0.22), transparent);
+        linear-gradient(180deg, rgba(10, 6, 32, 0.40), rgba(21, 0, 61, 0.46)),
+        radial-gradient(ellipse 70% 60% at 50% 0%, rgba(158, 76, 158, 0.16), transparent);
+}
+
+/* Panel central: columna oscura que solo deja el mar a los lados */
+body[data-bg="ocean"] main {
+    background: linear-gradient(
+        to right,
+        transparent calc(50% - 680px),
+        rgba(13, 6, 44, 0.86) calc(50% - 620px),
+        rgba(13, 6, 44, 0.86) calc(50% + 620px),
+        transparent calc(50% + 680px)
+    );
 }
 
 @media (prefers-reduced-motion: reduce) {

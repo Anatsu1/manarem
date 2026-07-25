@@ -123,7 +123,7 @@ Paleta oscura con acentos púrpura y rosa neón.
 - ✅ **Home dinámico**: hero carrousel (mín. 75vh) y destacados alimentados por la **API de AniList** (fallback Jikan → imágenes locales), más los 3 temas con más respuestas del foro.
 - ✅ **Foro con usuarios** (reemplazó al CRUD de productos): backend Flask + SQLite con registro, login (hash + token de sesión), temas por categoría y respuestas. Mocks con contrato idéntico.
 - ✅ **Cuentas y comunidad fase 2**: backend real de **contacto** y **opiniones** (persistidos en SQLite), **logout** (invalida el token) y **perfil** (`/perfil` con datos y temas del usuario). Login obligatorio para opinar. Mocks con el mismo contrato.
-- ✅ **Fondo animado** (video del mar) en páginas internas y con formularios; hero con carrousel de destacados, efecto sobre el texto y separación con sombra.
+- ✅ **Fondo animado** (video del mar) en todas las páginas, con panel central oscuro que lo deja ver solo por los costados; hero con carrousel de destacados, efecto sobre el texto y separación con sombra.
 - ✅ Logo SVG propio con la tipografía del sitio (Fonstars), fuentes display sin acentos, `dev_server.py` con URLs limpias.
 
 ### Próximos pasos
