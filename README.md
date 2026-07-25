@@ -122,14 +122,15 @@ Paleta oscura con acentos púrpura y rosa neón.
 - ✅ **Frontend standalone**: capa de mocks (`MOCK_MODE` en `api.js`) — todo funciona sin backend, listo para Vercel.
 - ✅ **Home dinámico**: hero carrousel (mín. 75vh) y destacados alimentados por la **API de AniList** (fallback Jikan → imágenes locales), más los 3 temas con más respuestas del foro.
 - ✅ **Foro con usuarios** (reemplazó al CRUD de productos): backend Flask + SQLite con registro, login (hash + token de sesión), temas por categoría y respuestas. Mocks con contrato idéntico.
-- ✅ Logo SVG propio, fuentes display sin acentos (limitación de Fonstars), `dev_server.py` con URLs limpias.
+- ✅ **Cuentas y comunidad fase 2**: backend real de **contacto** y **opiniones** (persistidos en SQLite), **logout** (invalida el token) y **perfil** (`/perfil` con datos y temas del usuario). Login obligatorio para opinar. Mocks con el mismo contrato.
+- ✅ **Fondo animado** (video del mar) en páginas internas y con formularios; hero con carrousel de destacados, efecto sobre el texto y separación con sombra.
+- ✅ Logo SVG propio con la tipografía del sitio (Fonstars), fuentes display sin acentos, `dev_server.py` con URLs limpias.
 
 ### Próximos pasos
 
 - [ ] **Deploy**: frontend a Vercel (modo mock) y backend a PythonAnywhere; apuntar `API_BASE` a la URL de producción y `MOCK_MODE = false`.
-- [ ] **Backend de contacto y opiniones**: hoy solo existen como mock; falta persistirlos.
-- [ ] **Foro fase 2**: editar/borrar temas y respuestas propios, paginación, expiración de sesiones, logout.
-- [ ] **Perfiles de usuario**: avatar (el campo ya existe en registro), página de perfil.
+- [ ] **Foro fase 2 (resto)**: editar/borrar temas y respuestas propios, paginación, expiración de sesiones.
+- [ ] **Perfiles**: avatar propio (hoy hay uno por defecto), edición de datos.
 - [ ] **A evaluar**: migración a PostgreSQL, búsqueda de animes vía AniList en `/recomend`, moderación del foro, rate limiting en la API, tests automatizados del backend.
 
 ## Autores

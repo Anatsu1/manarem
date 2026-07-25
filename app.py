@@ -58,6 +58,21 @@ def init_db():
             autor_id INTEGER NOT NULL REFERENCES usuarios(id),
             fecha TEXT NOT NULL
         )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS opiniones(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            autor_id INTEGER NOT NULL REFERENCES usuarios(id),
+            nombre TEXT NOT NULL,
+            avatar TEXT NOT NULL,
+            texto TEXT NOT NULL,
+            fecha TEXT NOT NULL
+        )''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS contacto_mensajes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            email TEXT NOT NULL,
+            mensaje TEXT NOT NULL,
+            fecha TEXT NOT NULL
+        )''')
         conn.commit()
 
 
@@ -224,6 +239,102 @@ def crear_respuesta(id):
     db.commit()
 
     return jsonify({'mensaje': 'Respuesta creada correctamente', 'id': cursor.lastrowid}), 201
+
+
+@app.route('/contacto', methods=['POST'])
+def contacto():
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    email = (data.get('email') or '').strip()
+    mensaje = (data.get('mensaje') or '').strip()
+
+    if not nombre or not email or not mensaje:
+        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO contacto_mensajes (nombre, email, mensaje, fecha) VALUES (?, ?, ?, ?)',
+        (nombre, email, mensaje, date.today().isoformat())
+    )
+    db.commit()
+
+    return jsonify({'mensaje': 'Mensaje enviado correctamente'}), 201
+
+
+@app.route('/opiniones', methods=['GET'])
+def listar_opiniones():
+    db = get_db()
+    filas = db.execute(
+        'SELECT id, nombre, avatar, texto, fecha FROM opiniones ORDER BY id DESC'
+    ).fetchall()
+    return jsonify([dict(f) for f in filas])
+
+
+@app.route('/opiniones', methods=['POST'])
+def crear_opinion():
+    user = usuario_actual(request)
+    if not user:
+        return jsonify({'error': 'No autenticado'}), 401
+
+    data = request.get_json(silent=True) or {}
+    texto = (data.get('texto') or '').strip()
+
+    if not texto:
+        return jsonify({'error': 'El texto no puede estar vacío'}), 400
+
+    db = get_db()
+    cursor = db.execute(
+        'INSERT INTO opiniones (autor_id, nombre, avatar, texto, fecha) VALUES (?, ?, ?, ?, ?)',
+        (user['id'], user['usuario'], 'persona1-f.jpg', texto, date.today().isoformat())
+    )
+    db.commit()
+
+    return jsonify({'mensaje': 'Opinion enviada', 'id': cursor.lastrowid}), 201
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        token = auth[7:]
+        db = get_db()
+        db.execute('DELETE FROM sesiones WHERE token = ?', (token,))
+        db.commit()
+    return jsonify({'mensaje': 'Sesion cerrada'}), 200
+
+
+@app.route('/perfil', methods=['GET'])
+def perfil():
+    user = usuario_actual(request)
+    if not user:
+        return jsonify({'error': 'No autenticado'}), 401
+
+    db = get_db()
+    creado = db.execute(
+        'SELECT creado FROM usuarios WHERE id = ?', (user['id'],)
+    ).fetchone()['creado']
+
+    total_temas = db.execute(
+        'SELECT COUNT(*) AS c FROM temas WHERE autor_id = ?', (user['id'],)
+    ).fetchone()['c']
+
+    total_respuestas = db.execute(
+        'SELECT COUNT(*) AS c FROM respuestas WHERE autor_id = ?', (user['id'],)
+    ).fetchone()['c']
+
+    temas = db.execute(
+        'SELECT id, titulo, categoria, fecha FROM temas WHERE autor_id = ? ORDER BY id DESC',
+        (user['id'],)
+    ).fetchall()
+
+    return jsonify({
+        'usuario': user['usuario'],
+        'email': user['email'],
+        'creado': creado,
+        'total_temas': total_temas,
+        'total_respuestas': total_respuestas,
+        'temas': [dict(t) for t in temas]
+    }), 200
 
 
 if __name__ == '__main__':

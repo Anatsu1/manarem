@@ -9,7 +9,8 @@
     { "source": "/preguntas-frecuentes", "destination": "/preg_frec.html" },
     { "source": "/acerca-de", "destination": "/acerca_de.html" },
     { "source": "/foro", "destination": "/foro.html" },
-    { "source": "/foro/tema", "destination": "/foro_tema.html" }
+    { "source": "/foro/tema", "destination": "/foro_tema.html" },
+    { "source": "/perfil", "destination": "/perfil.html" }
   ],
   "headers": [
     {

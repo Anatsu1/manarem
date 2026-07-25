@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Tu perfil en Manarem: tus datos, tus temas del foro y tu actividad en la comunidad.">
+    <link rel="stylesheet" href="/static/css/colors.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/header.css">
+    <link rel="stylesheet" href="/static/css/footer.css">
+    <link rel="stylesheet" href="/static/css/foro.css">
+    <link rel="stylesheet" href="/static/css/perfil.css">
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <title>Mi perfil — Manarem</title>
+</head>
+<body data-bg="ocean">
+    <main>
+        <section class="section">
+            <div class="container">
+                <div id="perfil-wrap"></div>
+            </div>
+        </section>
+    </main>
+    <script src="/static/js/mock-data.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        function esc(t) {
+            return String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+            }[c]));
+        }
+
+        async function cargarPerfil() {
+            const wrap = document.getElementById('perfil-wrap');
+            const user = checkAuth();
+            if (!user) {
+                wrap.innerHTML = '<h1>Mi perfil</h1><div class="perfil-vacio">Para ver tu perfil tenes que <a href="/ingresar">iniciar sesion</a>.</div>';
+                return;
+            }
+
+            const p = await api.perfil.obtener();
+            if (p.error) {
+                wrap.innerHTML = '<h1>Mi perfil</h1><div class="perfil-vacio">No se pudo cargar el perfil. <a href="/ingresar">Inicia sesion</a> de nuevo.</div>';
+                return;
+            }
+
+            const temasHtml = (p.temas && p.temas.length)
+                ? p.temas.map((t) => `
+                    <article class="tema-card">
+                        <a class="tema-titulo" href="/foro/tema?id=${t.id}"><h3>${esc(t.titulo)}</h3></a>
+                        <div class="tema-meta">
+                            <span class="tema-badge tema-badge--${esc(t.categoria)}">${esc(t.categoria)}</span>
+                            <time datetime="${esc(t.fecha)}">${esc(t.fecha)}</time>
+                        </div>
+                    </article>`).join('')
+                : '<div class="perfil-vacio">Todavia no creaste ningun tema. <a href="/foro">Anda al foro</a> y arranca una conversacion.</div>';
+
+            wrap.innerHTML = `
+                <div class="perfil-header">
+                    <img class="perfil-avatar" src="/static/img/chica-anime.png" alt="Avatar de ${esc(p.usuario)}">
+                    <div class="perfil-datos">
+                        <h1>${esc(p.usuario)}</h1>
+                        <p>${esc(p.email)}</p>
+                        <p>Miembro desde ${esc(p.creado)}</p>
+                    </div>
+                    <button type="button" id="btnLogout" class="btn btn-ghost perfil-logout">Cerrar sesion</button>
+                </div>
+
+                <div class="perfil-stats">
+                    <div class="perfil-stat"><span class="num">${p.total_temas}</span><span class="lbl">Temas</span></div>
+                    <div class="perfil-stat"><span class="num">${p.total_respuestas}</span><span class="lbl">Respuestas</span></div>
+                </div>
+
+                <h2 class="perfil-temas-titulo section-title">Mis temas</h2>
+                <div class="temas-list">${temasHtml}</div>
+            `;
+
+            document.getElementById('btnLogout').addEventListener('click', async () => {
+                try { await api.auth.logout(); } catch (_) {}
+                localStorage.removeItem('user');
+                window.location.href = '/';
+            });
+        }
+
+        cargarPerfil();
+    </script>
+</body>
+</html>

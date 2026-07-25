@@ -87,18 +87,55 @@ function mockRequest(method, path, data) {
             }
 
             if (method === 'POST' && path === '/opiniones') {
+                const userRaw = localStorage.getItem('user');
+                if (!userRaw) {
+                    resolve({ error: 'No autenticado' });
+                    return;
+                }
+                const user = JSON.parse(userRaw);
                 const maxId = MOCK_DB.opiniones.reduce((m, o) => Math.max(m, o.id), 0);
                 const val = data instanceof FormData ? v => data.get(v) : v => data[v];
                 const hoy = new Date();
                 const fecha = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
                 MOCK_DB.opiniones.push({
                     id: maxId + 1,
-                    nombre: val('nombre') || 'Anónimo',
+                    nombre: user.usuario || 'Usuario',
                     avatar: 'persona1-f.jpg',
                     texto: val('texto') || val('opinion') || '',
                     fecha,
                 });
-                resolve({ mensaje: 'Opinión enviada' });
+                resolve({ mensaje: 'Opinion enviada', id: maxId + 1 });
+                return;
+            }
+
+            if (method === 'POST' && path === '/logout') {
+                resolve({ mensaje: 'Sesion cerrada' });
+                return;
+            }
+
+            if (method === 'GET' && path === '/perfil') {
+                const userRaw = localStorage.getItem('user');
+                if (!userRaw) {
+                    resolve({ error: 'No autenticado' });
+                    return;
+                }
+                const user = JSON.parse(userRaw);
+                const mios = MOCK_DB.temas.filter(t => t.autor === user.usuario);
+                let totalRespuestas = 0;
+                MOCK_DB.temas.forEach(t => t.respuestas.forEach(r => {
+                    if (r.autor === user.usuario) totalRespuestas++;
+                }));
+                resolve({
+                    usuario: user.usuario,
+                    email: user.email || '',
+                    creado: user.creado || '—',
+                    total_temas: mios.length,
+                    total_respuestas: totalRespuestas,
+                    temas: mios
+                        .slice()
+                        .sort((a, b) => b.id - a.id)
+                        .map(t => ({ id: t.id, titulo: t.titulo, categoria: t.categoria, fecha: t.fecha })),
+                });
                 return;
             }
 
@@ -209,9 +246,13 @@ const api = {
     auth: {
         registro: (data) => apiRequest('POST', '/registro', data),
         login: (data) => apiRequest('POST', '/login', data),
+        logout: () => apiRequest('POST', '/logout'),
     },
     contacto: {
         enviar: (data) => apiRequest('POST', '/contacto', data),
+    },
+    perfil: {
+        obtener: () => apiRequest('GET', '/perfil'),
     },
     opiniones: {
         listar: () => apiRequest('GET', '/opiniones'),

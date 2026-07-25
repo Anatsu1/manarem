@@ -9,10 +9,10 @@ const MOCK_DB = {
         { codigo: 6, descripcion: 'Cartas Pokémon TCG booster', cantidad: 40, precio: 5600.00, imagen_url: 'Pokemon.jpg', proveedor: 4 },
     ],
     opiniones: [
-        { id: 1, nombre: 'Maria Lopez', avatar: 'persona1-f.jpg', texto: 'Me encanta la variedad de productos, especialmente las figuras de anime. Muy recomendable.', fecha: '2025-03-15' },
-        { id: 2, nombre: 'Ana Garcia', avatar: 'persona2-f.jpg', texto: 'Los precios son accesibles y el envío llegó antes de lo esperado. Volveré a comprar.', fecha: '2025-04-02' },
-        { id: 3, nombre: 'Carlos Perez', avatar: 'persona3-m.jpg', texto: 'Buena atención al cliente. Me ayudaron a encontrar un manga agotado en otros lados.', fecha: '2025-05-20' },
-        { id: 4, nombre: 'Lucia Martinez', avatar: 'persona4-f.jpg', texto: 'La página es fácil de navegar y los productos son de calidad. Súper satisfecha.', fecha: '2025-06-10' },
+        { id: 1, nombre: 'Maria Lopez', avatar: 'persona1-f.jpg', texto: 'Encontre mi proxima serie para maratonear en dos minutos. Las recomendaciones estan muy bien curadas.', fecha: '2025-03-15' },
+        { id: 2, nombre: 'Ana Garcia', avatar: 'persona2-f.jpg', texto: 'Me copa que junten el anime con su musica. Cai por un opening y termine escuchando todo el disco.', fecha: '2025-04-02' },
+        { id: 3, nombre: 'Carlos Perez', avatar: 'persona3-m.jpg', texto: 'El foro esta buenisimo para debatir teorias. La comunidad responde rapido y con onda.', fecha: '2025-05-20' },
+        { id: 4, nombre: 'Lucia Martinez', avatar: 'persona4-f.jpg', texto: 'La pagina es facil de navegar y los enlaces a donde ver cada anime van directo. Muy completa.', fecha: '2025-06-10' },
     ],
     temas: [
         {
