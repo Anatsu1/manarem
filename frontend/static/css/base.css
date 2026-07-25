@@ -168,3 +168,37 @@ input, textarea, select {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-strong);
 }
+
+/* Fondo animado (mar japones) para paginas internas y con formularios */
+body[data-bg="ocean"] {
+    background: #0a0620;
+}
+
+.ocean-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.ocean-bg video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.ocean-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(180deg, rgba(13, 6, 44, 0.78) 0%, rgba(21, 0, 61, 0.82) 55%, rgba(10, 22, 65, 0.88) 100%),
+        radial-gradient(ellipse 55% 45% at 50% 10%, rgba(158, 76, 158, 0.22), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ocean-bg video {
+        display: none;
+    }
+}

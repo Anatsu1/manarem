@@ -30,19 +30,22 @@ async function catalogoAniList() {
     if (!res.ok) throw new Error('AniList ' + res.status);
     const json = await res.json();
     const media = json.data.Page.media;
+    const destacados = media
+        .filter((m) => m.coverImage && m.coverImage.extraLarge)
+        .slice(0, 8)
+        .map((m) => ({
+            titulo: m.title.english || m.title.romaji,
+            imagen: m.coverImage.extraLarge,
+            banner: m.bannerImage,
+            descripcion: limpiarDescripcion(m.description, 110),
+            generos: (m.genres || []).slice(0, 2),
+            puntaje: m.averageScore,
+            url: m.siteUrl,
+        }));
+    // El carrousel del hero usa solo las imagenes de los destacados
     return {
-        banners: media.map((m) => m.bannerImage).filter(Boolean),
-        destacados: media
-            .filter((m) => m.coverImage && m.coverImage.extraLarge)
-            .slice(0, 8)
-            .map((m) => ({
-                titulo: m.title.english || m.title.romaji,
-                imagen: m.coverImage.extraLarge,
-                descripcion: limpiarDescripcion(m.description, 110),
-                generos: (m.genres || []).slice(0, 2),
-                puntaje: m.averageScore,
-                url: m.siteUrl,
-            })),
+        banners: destacados.map((d) => d.banner || d.imagen).filter(Boolean),
+        destacados,
     };
 }
 
@@ -51,16 +54,17 @@ async function catalogoJikan() {
     if (!res.ok) throw new Error('Jikan ' + res.status);
     const json = await res.json();
     const items = json.data || [];
+    const destacados = items.map((a) => ({
+        titulo: a.title_english || a.title,
+        imagen: a.images.jpg.large_image_url,
+        descripcion: limpiarDescripcion(a.synopsis, 110),
+        generos: (a.genres || []).slice(0, 2).map((g) => g.name),
+        puntaje: a.score ? Math.round(a.score * 10) : null,
+        url: a.url,
+    }));
     return {
-        banners: items.map((a) => a.images && a.images.jpg && a.images.jpg.large_image_url).filter(Boolean),
-        destacados: items.map((a) => ({
-            titulo: a.title_english || a.title,
-            imagen: a.images.jpg.large_image_url,
-            descripcion: limpiarDescripcion(a.synopsis, 110),
-            generos: (a.genres || []).slice(0, 2).map((g) => g.name),
-            puntaje: a.score ? Math.round(a.score * 10) : null,
-            url: a.url,
-        })),
+        banners: destacados.map((d) => d.imagen).filter(Boolean),
+        destacados,
     };
 }
 
@@ -105,6 +109,7 @@ function pintarDestacados(destacados) {
             </div>
         </article>
     `).join('');
+    if (typeof setupCardClamp === 'function') setupCardClamp(grid);
 }
 
 async function cargarCatalogo() {

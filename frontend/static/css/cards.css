@@ -65,7 +65,33 @@
 .card-text {
     font-size: 0.9rem;
     color: var(--text-muted);
-    flex: 1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
+
+.card-text.is-expanded {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    overflow: visible;
+}
+
+.card-more {
+    align-self: flex-start;
+    margin-top: calc(-1 * var(--space-xs));
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    color: var(--letter-hover);
+    cursor: pointer;
+}
+
+.card-more:hover {
+    text-decoration: underline;
 }
 
 .card-tags {
@@ -87,6 +113,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-sm);
+    margin-top: auto;
     padding-top: var(--space-sm);
     border-top: 1px solid var(--border-light);
 }

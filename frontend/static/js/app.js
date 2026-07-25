@@ -64,14 +64,39 @@ function updateNav() {
 
     if (user && loginLink && registerLink) {
         loginLink.textContent = user.usuario || 'Cuenta';
-        loginLink.href = '#';
+        loginLink.href = '/perfil';
         registerLink.textContent = 'Salir';
         registerLink.href = '#';
-        registerLink.onclick = () => {
+        registerLink.onclick = async (e) => {
+            e.preventDefault();
+            try { await api.auth.logout(); } catch (_) {}
             localStorage.removeItem('user');
-            window.location.reload();
+            window.location.href = '/';
         };
     }
 }
 
-document.addEventListener('DOMContentLoaded', updateNav);
+// Limita el texto de las cards a unas pocas lineas y agrega "Ver mas" solo si
+// el contenido se corta, para que todas las cards mantengan el mismo alto.
+function setupCardClamp(root) {
+    const scope = root || document;
+    scope.querySelectorAll('.card-text').forEach((el) => {
+        if (el.dataset.clampReady) return;
+        el.dataset.clampReady = '1';
+        if (el.scrollHeight - el.clientHeight <= 2) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'card-more';
+        btn.textContent = 'Ver mas';
+        btn.addEventListener('click', () => {
+            const abierto = el.classList.toggle('is-expanded');
+            btn.textContent = abierto ? 'Ver menos' : 'Ver mas';
+        });
+        el.insertAdjacentElement('afterend', btn);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateNav();
+    setupCardClamp();
+});

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <title>Opiniones — Manarem</title>
 </head>
-<body>
+<body data-bg="ocean">
     <main>
         <section class="section">
             <div class="container">
@@ -20,16 +20,8 @@
                 <p class="text-muted">Leé lo que otros usuarios opinan sobre Manarem y compartí tu experiencia.</p>
                 <div id="opiniones-list" class="opiniones-list"></div>
 
-                <div class="opinion-form-card">
-                    <h3>Deja tu opinion</h3>
-                    <form id="formOpinion">
-                        <label for="nombre">Nombre</label>
-                        <input type="text" id="nombre" name="nombre" required>
-                        <label for="texto">Tu opinión</label>
-                        <textarea id="texto" name="texto" rows="4" required></textarea>
-                        <button type="submit" class="btn">Enviar opinion</button>
-                    </form>
-                </div>
+                <h3 class="opinion-form-titulo">Deja tu opinion</h3>
+                <div id="form-opinion-wrap"></div>
             </div>
         </section>
     </main>
@@ -54,23 +46,42 @@
                 </article>`).join('');
         }
 
-        document.getElementById('formOpinion').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const data = {
-                nombre: document.getElementById('nombre').value,
-                texto: document.getElementById('texto').value,
-            };
-            const result = await api.opiniones.crear(data);
-            if (result.error) {
-                showAlert('Error al enviar opinión: ' + result.error, 'error');
-            } else {
-                showAlert('¡Opinión enviada correctamente!', 'success');
-                e.target.reset();
-                cargarOpiniones();
+        function setupFormOpinion() {
+            const wrap = document.getElementById('form-opinion-wrap');
+            const user = checkAuth();
+            if (!user) {
+                wrap.innerHTML = '<div class="login-aviso">Para dejar tu opinion tenes que <a href="/ingresar">iniciar sesion</a>.</div>';
+                return;
             }
-        });
+            wrap.innerHTML = `
+                <div class="opinion-form-card">
+                    <form id="formOpinion">
+                        <label for="texto">Tu opinion</label>
+                        <textarea id="texto" name="texto" rows="4" required></textarea>
+                        <button type="submit" class="btn">Enviar opinion</button>
+                    </form>
+                </div>
+            `;
+
+            document.getElementById('formOpinion').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const data = {
+                    nombre: user.usuario || 'Usuario',
+                    texto: document.getElementById('texto').value,
+                };
+                const result = await api.opiniones.crear(data);
+                if (result.error) {
+                    showAlert('Error al enviar opinión: ' + result.error, 'error');
+                } else {
+                    showAlert('¡Opinión enviada correctamente!', 'success');
+                    e.target.reset();
+                    cargarOpiniones();
+                }
+            });
+        }
 
         cargarOpiniones();
+        setupFormOpinion();
     </script>
 </body>
 </html>

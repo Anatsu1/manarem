@@ -135,6 +135,7 @@
 #form-tema-wrap,
 #form-respuesta-wrap {
     max-width: 820px;
+    margin-top: var(--space-md);
 }
 
 .form-group select {

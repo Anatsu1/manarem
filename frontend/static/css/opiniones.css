@@ -40,6 +40,24 @@
     margin-top: var(--space-xs);
 }
 
+.opinion-form-titulo {
+    margin-bottom: var(--space-md);
+}
+
+.login-aviso {
+    max-width: 560px;
+    margin-top: var(--space-md);
+    padding: var(--space-lg);
+    background: var(--input-bg);
+    border: 1px dashed var(--border-light);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+}
+
+.login-aviso a {
+    color: var(--letter-hover);
+}
+
 .opinion-form-card {
     background: var(--surface-glass);
     backdrop-filter: blur(8px);

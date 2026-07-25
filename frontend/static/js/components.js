@@ -52,7 +52,17 @@ const FOOTER_HTML = `
     </div>
 </footer>`;
 
+const OCEAN_BG_HTML = `
+<div class="ocean-bg" aria-hidden="true">
+    <video autoplay muted loop playsinline preload="auto" poster="/static/img/fondo.jpg">
+        <source src="/static/video/ocean.mp4" type="video/mp4">
+    </video>
+</div>`;
+
 function renderLayout() {
+    if (document.body.dataset.bg === 'ocean') {
+        document.body.insertAdjacentHTML('afterbegin', OCEAN_BG_HTML);
+    }
     document.body.insertAdjacentHTML('afterbegin', HEADER_HTML);
     document.body.insertAdjacentHTML('beforeend', FOOTER_HTML);
 
