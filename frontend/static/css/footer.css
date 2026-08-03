@@ -1,5 +1,4 @@
 .site-footer {
-    margin-top: var(--space-2xl);
     background: var(--header-bg);
     border-top: 1px solid var(--border-light);
     position: relative;

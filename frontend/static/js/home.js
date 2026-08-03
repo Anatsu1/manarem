@@ -42,11 +42,7 @@ async function catalogoAniList() {
             puntaje: m.averageScore,
             url: m.siteUrl,
         }));
-    // El carrousel del hero usa solo las imagenes de los destacados
-    return {
-        banners: destacados.map((d) => d.banner || d.imagen).filter(Boolean),
-        destacados,
-    };
+    return { destacados };
 }
 
 async function catalogoJikan() {
@@ -62,36 +58,43 @@ async function catalogoJikan() {
         puntaje: a.score ? Math.round(a.score * 10) : null,
         url: a.url,
     }));
-    return {
-        banners: destacados.map((d) => d.imagen).filter(Boolean),
-        destacados,
-    };
+    return { destacados };
 }
 
-function precargar(url) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(url);
-        img.onerror = reject;
-        img.src = url;
-    });
-}
+function pintarSpot(destacado) {
+    if (!destacado) return;
+    const spot = document.getElementById('destacado-spot');
+    if (!spot) return;
 
-function pintarSlides(banners) {
-    const slides = document.querySelectorAll('.hero-slide');
-    const elegidas = banners.slice(0, slides.length);
-    if (elegidas.length < slides.length) return Promise.resolve();
-    return Promise.all(elegidas.map(precargar)).then(() => {
-        slides.forEach((slide, i) => {
-            slide.style.backgroundImage = `url("${elegidas[i]}")`;
-        });
-    }).catch(() => {});
+    const img = spot.querySelector('.spot-media img');
+    if (img) {
+        img.src = destacado.imagen;
+        img.alt = 'Portada de ' + sinAcentos(destacado.titulo);
+    }
+
+    const titulo = spot.querySelector('.spot-title');
+    if (titulo) titulo.textContent = sinAcentos(destacado.titulo);
+
+    const meta = spot.querySelector('.spot-meta');
+    if (meta) {
+        const generos = (destacado.generos || [])
+            .map((g) => `<span class="card-tag">${sinAcentos(g)}</span>`)
+            .join('');
+        const score = destacado.puntaje ? `<span class="card-tag">★ ${destacado.puntaje}%</span>` : '';
+        meta.innerHTML = generos + score;
+    }
+
+    const texto = spot.querySelector('.spot-text');
+    if (texto) texto.textContent = destacado.descripcion;
+
+    const link = spot.querySelector('.card-links a');
+    if (link && destacado.url) link.href = destacado.url;
 }
 
 function pintarDestacados(destacados) {
     const grid = document.getElementById('destacados-grid');
     if (!grid || !destacados.length) return;
-    grid.innerHTML = destacados.map((d) => `
+    grid.innerHTML = destacados.slice(1).map((d) => `
         <article class="card">
             <div class="card-media">
                 <img src="${d.imagen}" alt="Portada de ${sinAcentos(d.titulo)}" loading="lazy">
@@ -123,7 +126,7 @@ async function cargarCatalogo() {
             return;
         }
     }
-    pintarSlides(catalogo.banners);
+    pintarSpot(catalogo.destacados[0]);
     pintarDestacados(catalogo.destacados);
 }
 

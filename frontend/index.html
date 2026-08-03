@@ -14,18 +14,12 @@
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <title>Manarem - Descubrí animes, mangas y su música</title>
 </head>
-<body data-bg="ocean">
+<body data-bg="ocean" data-page="home">
     <main>
         <section class="hero">
-            <div class="hero-slides" aria-hidden="true">
-                <div class="hero-slide"></div>
-                <div class="hero-slide"></div>
-                <div class="hero-slide"></div>
-                <div class="hero-slide"></div>
-            </div>
             <div class="container hero-inner">
                 <div class="hero-content">
-                    <p class="hero-kicker">Animes · Mangas · Música</p>
+                    <p class="hero-kicker">Animes · Mangas · Musica</p>
                     <h1 class="hero-title">Descubri tu proximo <span>anime favorito</span></h1>
                     <p class="hero-text">Manarem reúne recomendaciones de animes y mangas con enlaces directos para verlos y leerlos, más la música que los hace inolvidables.</p>
                     <div class="hero-actions">
@@ -39,6 +33,24 @@
         <section class="section">
             <div class="container">
                 <h2 class="section-title">Destacados de la temporada</h2>
+                <article class="spot" id="destacado-spot">
+                    <div class="spot-media">
+                        <img src="/static/img/OneP.jpg" alt="Portada de One Piece">
+                    </div>
+                    <div class="spot-body">
+                        <p class="spot-label">Lo mas visto ahora</p>
+                        <h3 class="spot-title">One Piece</h3>
+                        <div class="spot-meta">
+                            <span class="card-tag">Aventura</span>
+                            <span class="card-tag">Shonen</span>
+                            <span class="card-tag">★ 87%</span>
+                        </div>
+                        <p class="spot-text">Luffy y su tripulación surcan Grand Line en busca del One Piece. La aventura más longeva y querida del shōnen, con una tripulación que se volvió familia.</p>
+                        <div class="card-links">
+                            <a href="https://www.crunchyroll.com/es-es/series/GRMG8ZQZR/one-piece" target="_blank" rel="noopener">Ver ficha completa</a>
+                        </div>
+                    </div>
+                </article>
                 <div id="destacados-grid" class="card-grid">
                     <article class="card">
                         <div class="card-media">
@@ -54,23 +66,6 @@
                             </div>
                             <div class="card-links">
                                 <a href="https://www.crunchyroll.com/es-es/series/GVDHX8QNW/chainsaw-man" target="_blank" rel="noopener">Ver en Crunchyroll</a>
-                            </div>
-                        </div>
-                    </article>
-                    <article class="card">
-                        <div class="card-media">
-                            <img src="/static/img/OneP.jpg" alt="Portada de One Piece">
-                            <span class="card-badge">Anime + Manga</span>
-                        </div>
-                        <div class="card-body">
-                            <h3 class="card-title">One Piece</h3>
-                            <p class="card-text">Luffy y su tripulación surcan Grand Line en busca del One Piece. La aventura más longeva y querida del shōnen.</p>
-                            <div class="card-tags">
-                                <span class="card-tag">Aventura</span>
-                                <span class="card-tag">Shōnen</span>
-                            </div>
-                            <div class="card-links">
-                                <a href="https://www.crunchyroll.com/es-es/series/GRMG8ZQZR/one-piece" target="_blank" rel="noopener">Ver en Crunchyroll</a>
                             </div>
                         </div>
                     </article>
@@ -112,8 +107,8 @@
             </div>
         </section>
 
-        <section class="section">
-            <div class="container">
+        <section class="section section--foro">
+            <div class="container container--narrow">
                 <h2 class="section-title">Lo mas hablado del foro</h2>
                 <div id="foro-home" class="temas-list"></div>
                 <div class="home-foro-actions">
@@ -124,20 +119,31 @@
 
         <section class="section">
             <div class="container">
-                <h2 class="section-title">¿Nuevo en el mundo otaku?</h2>
-                <div class="info-grid">
-                    <article class="info-box">
-                        <h3>¡Bienvenido a Manarem!</h3>
-                        <p>Nuestra meta es que encuentres todos los mangas y animes disponibles en internet, en un solo lugar y con enlaces directos. También te recomendamos la música que los acompaña.</p>
+                <h2 class="section-title">Nuevo en el mundo otaku</h2>
+                <div class="glosario">
+                    <article class="glosario-row">
+                        <p class="glosario-term">Manga</p>
+                        <p class="glosario-def">La historieta japonesa. Se lee de derecha a izquierda, casi siempre en blanco y negro, y abarca todos los géneros imaginables. Muchos de los animes que ves nacieron como adaptaciones de un manga exitoso.</p>
                     </article>
-                    <article class="info-box">
-                        <h3>¿Que es un manga?</h3>
-                        <p>El manga es la historieta japonesa: se lee de derecha a izquierda y abarca todos los géneros imaginables. Muchos animes nacen como adaptaciones de mangas exitosos.</p>
+                    <article class="glosario-row">
+                        <p class="glosario-term">Manhwa</p>
+                        <p class="glosario-def">El equivalente coreano. Se lee de izquierda a derecha y hoy circula sobre todo como webtoon: a color y en tiras verticales pensadas para el celular.</p>
                     </article>
-                    <article class="info-box">
-                        <h3>¿Manga, manhwa o manhua?</h3>
-                        <p>El manga es de Japón, el manhwa de Corea (se lee de izquierda a derecha, suele ser webtoon a color) y el manhua de China. Cada uno tiene estilo y tradición propios.</p>
+                    <article class="glosario-row">
+                        <p class="glosario-term">Manhua</p>
+                        <p class="glosario-def">El chino. Comparte raíces con los otros dos pero tiene tradición e industria propias, con mucha fantasía histórica y publicación a color.</p>
                     </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="cierre">
+            <div class="container cierre-inner">
+                <h2 class="cierre-title">Sumate a la comunidad</h2>
+                <p class="cierre-text">Creá tu cuenta para opinar, abrir temas en el foro y guardar lo que vas descubriendo.</p>
+                <div class="hero-actions">
+                    <a class="btn" href="/registrarse">Crear cuenta</a>
+                    <a class="btn btn-ghost" href="/foro">Ir al foro</a>
                 </div>
             </div>
         </section>
