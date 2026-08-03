@@ -66,8 +66,9 @@ function mockRequest(method, path, data) {
             if (method === 'POST' && path === '/login') {
                 const usuario = data.usuario || data.email || 'Otaku';
                 const email = data.email || '';
+                const nombre = data.nombre || usuario;
                 const token = 'mock-token-' + Date.now();
-                resolve({ mensaje: 'Inicio de sesion exitoso', token, usuario: { id: 1, usuario, email } });
+                resolve({ mensaje: 'Inicio de sesion exitoso', token, usuario: { id: 1, usuario, nombre, email } });
                 return;
             }
 

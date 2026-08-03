@@ -59,15 +59,16 @@ function checkAuth() {
 
 function updateNav() {
     const user = checkAuth();
-    const loginLink = document.getElementById('h_ingresar');
-    const registerLink = document.getElementById('h_registrarse');
+    const cuentaLink = document.getElementById('h_ingresar');
+    const salirLink = document.getElementById('h_salir');
+    if (!cuentaLink || !salirLink) return;
 
-    if (user && loginLink && registerLink) {
-        loginLink.textContent = user.usuario || 'Cuenta';
-        loginLink.href = '/perfil';
-        registerLink.textContent = 'Salir';
-        registerLink.href = '#';
-        registerLink.onclick = async (e) => {
+    if (user) {
+        cuentaLink.textContent = user.usuario || 'Cuenta';
+        cuentaLink.href = '/perfil';
+        cuentaLink.classList.remove('nav-cta');
+        salirLink.hidden = false;
+        salirLink.onclick = async (e) => {
             e.preventDefault();
             try { await api.auth.logout(); } catch (_) {}
             localStorage.removeItem('user');

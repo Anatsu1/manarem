@@ -52,7 +52,6 @@
 .form-group textarea:focus,
 .form-group select:focus {
     border-color: var(--letter-hover);
-    outline: none;
 }
 
 .form-card .btn {
@@ -75,24 +74,3 @@
     width: min(100%, 560px);
 }
 
-.form-check {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-
-.form-check input {
-    accent-color: var(--accent-color);
-    width: 1.1em;
-    height: 1.1em;
-}
-
-.form-check label {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-}
-
-.form-check a {
-    color: var(--letter-hover);
-}

@@ -2,8 +2,8 @@
   "rewrites": [
     { "source": "/recomend", "destination": "/recomend.html" },
     { "source": "/musica", "destination": "/musica.html" },
-    { "source": "/registrarse", "destination": "/registrarse.html" },
-    { "source": "/ingresar", "destination": "/ingresar.html" },
+    { "source": "/registrarse", "destination": "/cuenta.html" },
+    { "source": "/ingresar", "destination": "/cuenta.html" },
     { "source": "/opiniones", "destination": "/opiniones.html" },
     { "source": "/contacto", "destination": "/contacto.html" },
     { "source": "/preguntas-frecuentes", "destination": "/preg_frec.html" },

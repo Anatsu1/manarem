@@ -20,8 +20,8 @@ const HEADER_HTML = `
                 </div>
             </div>
             <div class="nav-auth">
-                <a class="nav-link" id="h_ingresar" href="/ingresar">Ingresar</a>
-                <a class="nav-link nav-cta" id="h_registrarse" href="/registrarse">Registrarse</a>
+                <a class="nav-link nav-cta" id="h_ingresar" href="/ingresar">Iniciar sesión</a>
+                <a class="nav-link" id="h_salir" href="#" hidden>Salir</a>
             </div>
         </div>
     </nav>

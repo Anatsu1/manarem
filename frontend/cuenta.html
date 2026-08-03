@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Ingresá o creá tu cuenta en Manarem para opinar y participar del foro.">
+    <link rel="stylesheet" href="/static/css/colors.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/header.css">
+    <link rel="stylesheet" href="/static/css/footer.css">
+    <link rel="stylesheet" href="/static/css/formulario.css">
+    <link rel="stylesheet" href="/static/css/cuenta.css">
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <title>Tu cuenta — Manarem</title>
+</head>
+<body data-page="cuenta">
+    <main>
+        <section class="cuenta">
+            <div class="container cuenta-inner">
+                <aside class="cuenta-marca">
+                    <h1 class="cuenta-titulo">Tu cuenta en <span>Manarem</span></h1>
+                    <p class="cuenta-pitch">Con tu cuenta podés opinar, abrir temas en el foro y guardar lo que vas descubriendo.</p>
+                </aside>
+
+                <div class="cuenta-panel">
+                    <div class="cuenta-tabs" role="tablist">
+                        <button class="cuenta-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="panel-login" id="tab-login" data-panel="login">Ingresar</button>
+                        <button class="cuenta-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-registro" id="tab-registro" data-panel="registro">Crear cuenta</button>
+                    </div>
+
+                    <form class="cuenta-form" id="panel-login" role="tabpanel" aria-labelledby="tab-login" data-panel="login">
+                        <div class="form-group">
+                            <label for="usuario">Usuario</label>
+                            <input type="text" id="usuario" name="usuario" autocomplete="username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Contraseña</label>
+                            <input type="password" id="password" name="password" autocomplete="current-password" required>
+                        </div>
+                        <button type="submit" class="btn">Iniciar sesion</button>
+                        <p class="form-alt">¿No tenés cuenta? <a class="cuenta-switch" href="/registrarse" data-panel="registro">Creá una</a></p>
+                    </form>
+
+                    <form class="cuenta-form" id="panel-registro" role="tabpanel" aria-labelledby="tab-registro" data-panel="registro" hidden>
+                        <div class="form-group">
+                            <label for="nombre">Nombre</label>
+                            <input type="text" id="nombre" name="nombre" autocomplete="name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="usuarioReg">Usuario</label>
+                            <input type="text" id="usuarioReg" name="usuarioReg" autocomplete="username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" autocomplete="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="passwordReg">Contraseña</label>
+                            <input type="password" id="passwordReg" name="passwordReg" autocomplete="new-password" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password2">Repetir contraseña</label>
+                            <input type="password" id="password2" name="password2" autocomplete="new-password" required>
+                        </div>
+                        <button type="submit" class="btn">Crear cuenta</button>
+                        <p class="form-alt">¿Ya tenés una cuenta? <a class="cuenta-switch" href="/ingresar" data-panel="login">Ingresá</a></p>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+    <script src="/static/js/mock-data.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/cuenta.js"></script>
+</body>
+</html>

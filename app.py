@@ -34,10 +34,14 @@ def init_db():
         conn.execute('''CREATE TABLE IF NOT EXISTS usuarios(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario TEXT UNIQUE NOT NULL,
+            nombre TEXT,
             email TEXT NOT NULL,
             password_hash TEXT NOT NULL,
             creado TEXT NOT NULL
         )''')
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(usuarios)')]
+        if 'nombre' not in cols:
+            conn.execute('ALTER TABLE usuarios ADD COLUMN nombre TEXT')
         conn.execute('''CREATE TABLE IF NOT EXISTS sesiones(
             token TEXT PRIMARY KEY,
             usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
@@ -95,17 +99,18 @@ init_db()
 def registro():
     data = request.get_json(silent=True) or {}
     usuario = (data.get('usuario') or '').strip()
+    nombre = (data.get('nombre') or '').strip()
     email = (data.get('email') or '').strip()
     password = (data.get('password') or '').strip()
 
-    if not usuario or not email or not password:
+    if not usuario or not nombre or not email or not password:
         return jsonify({'error': 'Todos los campos son obligatorios'}), 400
 
     db = get_db()
     try:
         db.execute(
-            'INSERT INTO usuarios (usuario, email, password_hash, creado) VALUES (?, ?, ?, ?)',
-            (usuario, email, generate_password_hash(password), date.today().isoformat())
+            'INSERT INTO usuarios (usuario, nombre, email, password_hash, creado) VALUES (?, ?, ?, ?, ?)',
+            (usuario, nombre, email, generate_password_hash(password), date.today().isoformat())
         )
         db.commit()
     except sqlite3.IntegrityError:
@@ -144,6 +149,7 @@ def login():
         'usuario': {
             'id': user['id'],
             'usuario': user['usuario'],
+            'nombre': user['nombre'],
             'email': user['email']
         }
     }), 200
@@ -310,9 +316,11 @@ def perfil():
         return jsonify({'error': 'No autenticado'}), 401
 
     db = get_db()
-    creado = db.execute(
-        'SELECT creado FROM usuarios WHERE id = ?', (user['id'],)
-    ).fetchone()['creado']
+    fila = db.execute(
+        'SELECT creado, nombre FROM usuarios WHERE id = ?', (user['id'],)
+    ).fetchone()
+    creado = fila['creado']
+    nombre = fila['nombre']
 
     total_temas = db.execute(
         'SELECT COUNT(*) AS c FROM temas WHERE autor_id = ?', (user['id'],)
@@ -329,6 +337,7 @@ def perfil():
 
     return jsonify({
         'usuario': user['usuario'],
+        'nombre': nombre,
         'email': user['email'],
         'creado': creado,
         'total_temas': total_temas,
