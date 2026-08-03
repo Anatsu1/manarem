@@ -2,6 +2,26 @@ function sinAcentos(texto) {
     return (texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
+function escaparHtml(texto) {
+    return String(texto ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[c]));
+}
+
+function urlSegura(url) {
+    if (typeof url !== 'string' || !url.trim()) return null;
+    try {
+        const u = new URL(url, window.location.origin);
+        return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 function limpiarDescripcion(html, max) {
     const texto = (html || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     if (!texto) return 'Sin descripcion disponible.';
@@ -67,8 +87,9 @@ function pintarSpot(destacado) {
     if (!spot) return;
 
     const img = spot.querySelector('.spot-media img');
-    if (img) {
-        img.src = destacado.imagen;
+    const portada = urlSegura(destacado.imagen);
+    if (img && portada) {
+        img.src = portada;
         img.alt = 'Portada de ' + sinAcentos(destacado.titulo);
     }
 
@@ -77,41 +98,51 @@ function pintarSpot(destacado) {
 
     const meta = spot.querySelector('.spot-meta');
     if (meta) {
-        const generos = (destacado.generos || [])
-            .map((g) => `<span class="card-tag">${sinAcentos(g)}</span>`)
-            .join('');
-        const score = destacado.puntaje ? `<span class="card-tag">★ ${destacado.puntaje}%</span>` : '';
-        meta.innerHTML = generos + score;
+        meta.textContent = '';
+        const etiquetas = (destacado.generos || []).map((g) => sinAcentos(g));
+        if (destacado.puntaje) etiquetas.push('★ ' + destacado.puntaje + '%');
+        etiquetas.forEach((texto) => {
+            const tag = document.createElement('span');
+            tag.className = 'card-tag';
+            tag.textContent = texto;
+            meta.appendChild(tag);
+        });
     }
 
     const texto = spot.querySelector('.spot-text');
     if (texto) texto.textContent = destacado.descripcion;
 
     const link = spot.querySelector('.card-links a');
-    if (link && destacado.url) link.href = destacado.url;
+    const ficha = urlSegura(destacado.url);
+    if (link && ficha) link.href = ficha;
 }
 
 function pintarDestacados(destacados) {
     const grid = document.getElementById('destacados-grid');
     if (!grid || !destacados.length) return;
-    grid.innerHTML = destacados.slice(1).map((d) => `
+    grid.innerHTML = destacados.slice(1).map((d) => {
+        const portada = urlSegura(d.imagen);
+        const ficha = urlSegura(d.url);
+        const titulo = escaparHtml(sinAcentos(d.titulo));
+        return `
         <article class="card">
             <div class="card-media">
-                <img src="${d.imagen}" alt="Portada de ${sinAcentos(d.titulo)}" loading="lazy">
-                <span class="card-badge">${d.puntaje ? '★ ' + d.puntaje + '%' : 'Anime'}</span>
+                ${portada ? `<img src="${escaparHtml(portada)}" alt="Portada de ${titulo}" loading="lazy">` : ''}
+                <span class="card-badge">${d.puntaje ? '★ ' + escaparHtml(d.puntaje) + '%' : 'Anime'}</span>
             </div>
             <div class="card-body">
-                <h3 class="card-title">${sinAcentos(d.titulo)}</h3>
-                <p class="card-text">${d.descripcion}</p>
+                <h3 class="card-title">${titulo}</h3>
+                <p class="card-text">${escaparHtml(d.descripcion)}</p>
                 <div class="card-tags">
-                    ${d.generos.map((g) => `<span class="card-tag">${g}</span>`).join('')}
+                    ${(d.generos || []).map((g) => `<span class="card-tag">${escaparHtml(g)}</span>`).join('')}
                 </div>
                 <div class="card-links">
-                    <a href="${d.url}" target="_blank" rel="noopener">Ver ficha completa</a>
+                    ${ficha ? `<a href="${escaparHtml(ficha)}" target="_blank" rel="noopener">Ver ficha completa</a>` : ''}
                 </div>
             </div>
         </article>
-    `).join('');
+    `;
+    }).join('');
     if (typeof setupCardClamp === 'function') setupCardClamp(grid);
 }
 
@@ -142,12 +173,12 @@ async function cargarForoHome() {
         }
         cont.innerHTML = top.map((t) => `
             <article class="tema-card">
-                <a class="tema-titulo" href="/foro/tema?id=${t.id}"><h3>${sinAcentos(t.titulo)}</h3></a>
+                <a class="tema-titulo" href="/foro/tema?id=${encodeURIComponent(t.id)}"><h3>${escaparHtml(sinAcentos(t.titulo))}</h3></a>
                 <div class="tema-meta">
-                    <span class="tema-badge tema-badge--${t.categoria}">${t.categoria}</span>
-                    <span>por ${t.autor}</span>
-                    <time datetime="${t.fecha}">${t.fecha}</time>
-                    <span class="tema-respuestas">${t.respuestas} respuestas</span>
+                    <span class="tema-badge tema-badge--${escaparHtml(t.categoria)}">${escaparHtml(t.categoria)}</span>
+                    <span>por ${escaparHtml(t.autor)}</span>
+                    <time datetime="${escaparHtml(t.fecha)}">${escaparHtml(t.fecha)}</time>
+                    <span class="tema-respuestas">${escaparHtml(t.respuestas)} respuestas</span>
                 </div>
             </article>
         `).join('');

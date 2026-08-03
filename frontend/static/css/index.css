@@ -1,3 +1,15 @@
+body[data-page="home"] {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body[data-page="home"] .spot-title,
+body[data-page="home"] .card-title,
+body[data-page="home"] .glosario-term {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 body[data-page="home"] main {
     padding-bottom: var(--space-2xl);
     background: linear-gradient(
@@ -47,21 +59,23 @@ body[data-page="home"] .ocean-bg::after {
     font-size: clamp(2.4rem, 5vw, 3.8rem);
     line-height: 1.18;
     margin-bottom: var(--space-md);
-    text-shadow: 0.045em 0.045em 0 var(--accent-color);
-    color: color-mix(in srgb, var(--letter-color) 87%, var(--main-bg));
-    text-shadow:
-        0.045em 0.045em 0 color-mix(in srgb, var(--letter-color) 32%, var(--main-bg)),
-        0 0 0.28em color-mix(in srgb, var(--letter-color) 85%, transparent),
-        0 0 0.85em color-mix(in srgb, var(--letter-color) 55%, transparent);
+    background: linear-gradient(
+        120deg,
+        var(--letter-color),
+        var(--accent-strong) 35%,
+        var(--letter-hover) 60%,
+        var(--letter-color) 90%
+    );
+    background-size: 240% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 0.12em var(--main-bg)) drop-shadow(0 0 0.3em var(--main-bg));
+    animation: hero-sheen 7s linear infinite;
 }
 
-.hero-title span {
-    color: var(--letter-hover);
-    color: color-mix(in srgb, var(--letter-hover) 87%, var(--main-bg));
-    text-shadow:
-        0.045em 0.045em 0 color-mix(in srgb, var(--letter-hover) 32%, var(--main-bg)),
-        0 0 0.28em color-mix(in srgb, var(--letter-hover) 85%, transparent),
-        0 0 0.85em color-mix(in srgb, var(--letter-hover) 55%, transparent);
+@keyframes hero-sheen {
+    to { background-position: 240% center; }
 }
 
 .hero-text {
@@ -190,6 +204,12 @@ body[data-page="home"] .ocean-bg::after {
 .cierre-text {
     max-width: 52ch;
     color: var(--text-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-title span {
+        animation: none;
+    }
 }
 
 @media (max-width: 900px) {
