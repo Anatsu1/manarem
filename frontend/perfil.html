@@ -26,12 +26,6 @@
     <script src="/static/js/components.js"></script>
     <script src="/static/js/app.js"></script>
     <script>
-        function esc(t) {
-            return String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-            }[c]));
-        }
-
         async function cargarPerfil() {
             const wrap = document.getElementById('perfil-wrap');
             const user = checkAuth();
@@ -49,28 +43,31 @@
             const temasHtml = (p.temas && p.temas.length)
                 ? p.temas.map((t) => `
                     <article class="tema-card">
-                        <a class="tema-titulo" href="/foro/tema?id=${t.id}"><h3>${esc(t.titulo)}</h3></a>
+                        <a class="tema-titulo" href="/foro/tema?id=${encodeURIComponent(t.id)}"><h3>${escaparHtml(sinAcentos(t.titulo))}</h3></a>
                         <div class="tema-meta">
-                            <span class="tema-badge tema-badge--${esc(t.categoria)}">${esc(t.categoria)}</span>
-                            <time datetime="${esc(t.fecha)}">${esc(t.fecha)}</time>
+                            <span class="tema-badge tema-badge--${escaparHtml(t.categoria)}">${escaparHtml(t.categoria)}</span>
+                            <time datetime="${escaparHtml(t.fecha)}">${escaparHtml(t.fecha)}</time>
                         </div>
                     </article>`).join('')
                 : '<div class="perfil-vacio">Todavia no creaste ningun tema. <a href="/foro">Anda al foro</a> y arranca una conversacion.</div>';
 
+            const titulo = escaparHtml(sinAcentos(p.nombre || p.usuario));
+
             wrap.innerHTML = `
                 <div class="perfil-header">
-                    <img class="perfil-avatar" src="/static/img/chica-anime.png" alt="Avatar de ${esc(p.usuario)}">
+                    <img class="perfil-avatar" src="/static/img/chica-anime.png" alt="Avatar de ${escaparHtml(p.usuario)}">
                     <div class="perfil-datos">
-                        <h1>${esc(p.usuario)}</h1>
-                        <p>${esc(p.email)}</p>
-                        <p>Miembro desde ${esc(p.creado)}</p>
+                        <h1>${titulo}</h1>
+                        <p class="perfil-usuario">@${escaparHtml(p.usuario)}</p>
+                        <p>${escaparHtml(p.email)}</p>
+                        <p>Miembro desde ${escaparHtml(p.creado)}</p>
                     </div>
                     <button type="button" id="btnLogout" class="btn btn-ghost perfil-logout">Cerrar sesion</button>
                 </div>
 
                 <div class="perfil-stats">
-                    <div class="perfil-stat"><span class="num">${p.total_temas}</span><span class="lbl">Temas</span></div>
-                    <div class="perfil-stat"><span class="num">${p.total_respuestas}</span><span class="lbl">Respuestas</span></div>
+                    <div class="perfil-stat"><span class="num">${escaparHtml(p.total_temas)}</span><span class="lbl">Temas</span></div>
+                    <div class="perfil-stat"><span class="num">${escaparHtml(p.total_respuestas)}</span><span class="lbl">Respuestas</span></div>
                 </div>
 
                 <h2 class="perfil-temas-titulo section-title">Mis temas</h2>

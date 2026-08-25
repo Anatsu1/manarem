@@ -1,67 +1,64 @@
-const API_BASE = 'http://localhost:5000';
-const MOCK_MODE = true;
+// ---------------------------------------------------------------------------
+// Configuracion. Es el unico lugar del frontend donde se decide a que API se
+// le pega. No hay build step: se edita aca, se commitea y Vercel redeploya.
+// ---------------------------------------------------------------------------
+const CONFIG = {
+    // URL de la API en produccion.
+    //
+    //   ''  -> todavia no hay backend publicado. El sitio se muestra igual, con
+    //          los datos simulados de mock-data.js. Es el estado seguro: nada
+    //          se rompe mientras el VPS no este arriba.
+    //
+    //   '/api' -> usa el proxy declarado en vercel.json, que reenvia al VPS. El
+    //          pedido sale al mismo origen: sin CORS y sin contenido mixto.
+    //          Hay que completar el destino real en vercel.json.
+    //
+    //   'https://api.tu-dominio.com' -> le pega directo al backend. Requiere
+    //          que el dominio de Vercel este en MANAREM_CORS_ORIGINS del VPS.
+    //
+    // Para salir a produccion: ver deploy/README.md, paso "Conectar el frontend".
+    apiBase: '',
+
+    // API cuando el sitio se sirve desde localhost (dev_server.py + app.py).
+    apiBaseDev: 'http://localhost:5000',
+
+    // true fuerza los datos simulados en todas las paginas, tambien en local.
+    mockMode: false,
+};
+
+const ES_LOCAL = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
+
+// Interruptor de emergencia sin tocar codigo: ?mock=1 prende los datos
+// simulados y queda guardado; ?mock=0 los apaga. Sirve para mostrar el sitio
+// aunque el VPS este caido.
+(function leerInterruptorMock() {
+    const pedido = new URLSearchParams(window.location.search).get('mock');
+    if (pedido === null) return;
+    try {
+        if (pedido === '0') localStorage.removeItem('manarem_mock');
+        else localStorage.setItem('manarem_mock', '1');
+    } catch (e) {}
+})();
+
+function mockActivo() {
+    if (CONFIG.mockMode) return true;
+    // Sin API configurada no hay a donde pegarle: se cae a los mocks en vez de
+    // dejar la mitad del sitio tirando errores.
+    if (!(ES_LOCAL ? CONFIG.apiBaseDev : CONFIG.apiBase)) return true;
+    try {
+        return localStorage.getItem('manarem_mock') === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+const API_BASE = ES_LOCAL ? CONFIG.apiBaseDev : CONFIG.apiBase;
+const MOCK_MODE = mockActivo();
 
 function mockRequest(method, path, data) {
     return new Promise(resolve => {
         setTimeout(() => {
             const parts = path.split('/').filter(Boolean);
-
-            if (method === 'GET' && path === '/productos') {
-                resolve(MOCK_DB.productos);
-                return;
-            }
-
-            if (method === 'GET' && parts[0] === 'productos' && parts[1]) {
-                const codigo = parseInt(parts[1]);
-                const prod = MOCK_DB.productos.find(p => p.codigo === codigo);
-                resolve(prod || { error: 'Producto no encontrado' });
-                return;
-            }
-
-            if (method === 'POST' && path === '/productos') {
-                const maxCod = MOCK_DB.productos.reduce((m, p) => Math.max(m, p.codigo), 0);
-                const img = data.get('imagen');
-                const nuevo = {
-                    codigo: maxCod + 1,
-                    descripcion: data.get('descripcion'),
-                    cantidad: parseInt(data.get('cantidad')),
-                    precio: parseFloat(data.get('precio')),
-                    imagen_url: (img instanceof File && img.name) ? img.name : 'gabinete.jpg',
-                    proveedor: parseInt(data.get('proveedor')),
-                };
-                MOCK_DB.productos.push(nuevo);
-                resolve({ mensaje: 'Producto agregado correctamente.', codigo: nuevo.codigo });
-                return;
-            }
-
-            if (method === 'PUT' && parts[0] === 'productos' && parts[1]) {
-                const codigo = parseInt(parts[1]);
-                const prod = MOCK_DB.productos.find(p => p.codigo === codigo);
-                if (!prod) {
-                    resolve({ error: 'Producto no encontrado' });
-                    return;
-                }
-                if (data.get('descripcion') !== null) prod.descripcion = data.get('descripcion');
-                if (data.get('cantidad') !== null) prod.cantidad = parseInt(data.get('cantidad'));
-                if (data.get('precio') !== null) prod.precio = parseFloat(data.get('precio'));
-                if (data.get('proveedor') !== null) prod.proveedor = parseInt(data.get('proveedor'));
-                const img = data.get('imagen');
-                if (img instanceof File && img.name) prod.imagen_url = img.name;
-                resolve({ mensaje: 'Producto modificado' });
-                return;
-            }
-
-            if (method === 'DELETE' && parts[0] === 'productos' && parts[1]) {
-                const codigo = parseInt(parts[1]);
-                const idx = MOCK_DB.productos.findIndex(p => p.codigo === codigo);
-                if (idx === -1) {
-                    resolve({ error: 'Producto no encontrado' });
-                    return;
-                }
-                MOCK_DB.productos.splice(idx, 1);
-                resolve({ mensaje: 'Producto eliminado' });
-                return;
-            }
 
             if (method === 'POST' && path === '/login') {
                 const usuario = data.usuario || data.email || 'Otaku';
@@ -128,6 +125,7 @@ function mockRequest(method, path, data) {
                 }));
                 resolve({
                     usuario: user.usuario,
+                    nombre: user.nombre || user.usuario,
                     email: user.email || '',
                     creado: user.creado || '—',
                     total_temas: mios.length,
@@ -140,7 +138,7 @@ function mockRequest(method, path, data) {
                 return;
             }
 
-            if (method === 'GET' && path === '/foro/temas') {
+            if (method === 'GET' && parts[0] === 'foro' && parts[1] === 'temas' && !parts[2]) {
                 const res = MOCK_DB.temas.map(t => ({
                     id: t.id, titulo: t.titulo, categoria: t.categoria,
                     autor: t.autor, fecha: t.fecha, respuestas: t.respuestas.length,
@@ -204,46 +202,74 @@ function mockRequest(method, path, data) {
                 return;
             }
 
+            if (method === 'GET' && path === '/salud') {
+                resolve({ estado: 'mock' });
+                return;
+            }
+
             resolve({ error: 'Ruta no implementada en mock' });
         }, 300);
     });
 }
 
+function tokenGuardado() {
+    try {
+        const userRaw = localStorage.getItem('user');
+        if (!userRaw) return null;
+        return JSON.parse(userRaw).token || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Siempre resuelve: nunca tira. Los errores de red, los HTML de error de un
+// proxy y los estados 4xx/5xx salen todos como { error: '...' }, que es lo que
+// esperan las paginas.
 async function apiRequest(method, path, data) {
     if (MOCK_MODE) return mockRequest(method, path, data);
 
-    const url = `${API_BASE}${path}`;
-    const options = { method };
+    const options = { method, headers: {} };
 
-    const userRaw = localStorage.getItem('user');
-    if (userRaw) {
-        try {
-            const user = JSON.parse(userRaw);
-            if (user.token) {
-                options.headers = { ...(options.headers || {}), 'Authorization': 'Bearer ' + user.token };
-            }
-        } catch (_) {}
-    }
+    const token = tokenGuardado();
+    if (token) options.headers['Authorization'] = 'Bearer ' + token;
 
     if (data instanceof FormData) {
         options.body = data;
     } else if (data) {
-        options.headers = { ...(options.headers || {}), 'Content-Type': 'application/json' };
+        options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(data);
     }
 
-    const response = await fetch(url, options);
-    return response.json();
+    let respuesta;
+    try {
+        respuesta = await fetch(`${API_BASE}${path}`, options);
+    } catch (e) {
+        return { error: 'No se pudo conectar con el servidor.' };
+    }
+
+    // Token vencido o revocado: la sesion local ya no sirve.
+    if (respuesta.status === 401 && token) {
+        try { localStorage.removeItem('user'); } catch (e) {}
+    }
+
+    let cuerpo = null;
+    try {
+        cuerpo = await respuesta.json();
+    } catch (e) {}
+
+    if (cuerpo === null || cuerpo === undefined) {
+        return respuesta.ok ? {} : { error: `El servidor respondio ${respuesta.status}.` };
+    }
+
+    if (!respuesta.ok) {
+        const detalle = (cuerpo && cuerpo.error) || `El servidor respondio ${respuesta.status}.`;
+        return { error: detalle };
+    }
+
+    return cuerpo;
 }
 
 const api = {
-    productos: {
-        listar: () => apiRequest('GET', '/productos'),
-        obtener: (codigo) => apiRequest('GET', `/productos/${codigo}`),
-        crear: (formData) => apiRequest('POST', '/productos', formData),
-        modificar: (codigo, formData) => apiRequest('PUT', `/productos/${codigo}`, formData),
-        eliminar: (codigo) => apiRequest('DELETE', `/productos/${codigo}`),
-    },
     auth: {
         registro: (data) => apiRequest('POST', '/registro', data),
         login: (data) => apiRequest('POST', '/login', data),
@@ -261,8 +287,9 @@ const api = {
     },
     foro: {
         listarTemas: () => apiRequest('GET', '/foro/temas'),
-        obtenerTema: (id) => apiRequest('GET', '/foro/temas/' + id),
+        obtenerTema: (id) => apiRequest('GET', '/foro/temas/' + encodeURIComponent(id)),
         crearTema: (data) => apiRequest('POST', '/foro/temas', data),
-        responder: (id, data) => apiRequest('POST', '/foro/temas/' + id + '/respuestas', data),
+        responder: (id, data) => apiRequest('POST', '/foro/temas/' + encodeURIComponent(id) + '/respuestas', data),
     },
+    salud: () => apiRequest('GET', '/salud'),
 };

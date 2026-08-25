@@ -1,27 +1,3 @@
-function sinAcentos(texto) {
-    return (texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
-
-function escaparHtml(texto) {
-    return String(texto ?? '').replace(/[&<>"']/g, (c) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-    }[c]));
-}
-
-function urlSegura(url) {
-    if (typeof url !== 'string' || !url.trim()) return null;
-    try {
-        const u = new URL(url, window.location.origin);
-        return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
-    } catch (e) {
-        return null;
-    }
-}
-
 function limpiarDescripcion(html, max) {
     const texto = (html || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
     if (!texto) return 'Sin descripcion disponible.';

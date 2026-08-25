@@ -34,14 +34,26 @@
         async function cargarTemas() {
             const lista = document.getElementById('temas-list');
             const temas = await api.foro.listarTemas();
+
+            if (!Array.isArray(temas)) {
+                lista.innerHTML = '<div class="foro-aviso">No se pudieron cargar los temas. '
+                    + escaparHtml(temas.error || 'Probá de nuevo en un rato.') + '</div>';
+                return;
+            }
+
+            if (!temas.length) {
+                lista.innerHTML = '<div class="foro-aviso">Todavia no hay temas. Arranca vos la primera conversacion.</div>';
+                return;
+            }
+
             lista.innerHTML = temas.map(t => `
                 <article class="tema-card">
-                    <a class="tema-titulo" href="/foro/tema?id=${t.id}"><h3>${t.titulo}</h3></a>
+                    <a class="tema-titulo" href="/foro/tema?id=${encodeURIComponent(t.id)}"><h3>${escaparHtml(sinAcentos(t.titulo))}</h3></a>
                     <div class="tema-meta">
-                        <span class="tema-badge tema-badge--${t.categoria}">${t.categoria}</span>
-                        <span>por ${t.autor}</span>
-                        <time datetime="${t.fecha}">${t.fecha}</time>
-                        <span class="tema-respuestas">${t.respuestas} respuestas</span>
+                        <span class="tema-badge tema-badge--${escaparHtml(t.categoria)}">${escaparHtml(t.categoria)}</span>
+                        <span>por ${escaparHtml(t.autor)}</span>
+                        <time datetime="${escaparHtml(t.fecha)}">${escaparHtml(t.fecha)}</time>
+                        <span class="tema-respuestas">${escaparHtml(t.respuestas)} respuestas</span>
                     </div>
                 </article>
             `).join('');

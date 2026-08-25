@@ -1,28 +1,92 @@
 {
   "rewrites": [
-    { "source": "/recomend", "destination": "/recomend.html" },
-    { "source": "/musica", "destination": "/musica.html" },
-    { "source": "/registrarse", "destination": "/cuenta.html" },
-    { "source": "/ingresar", "destination": "/cuenta.html" },
-    { "source": "/opiniones", "destination": "/opiniones.html" },
-    { "source": "/contacto", "destination": "/contacto.html" },
-    { "source": "/preguntas-frecuentes", "destination": "/preg_frec.html" },
-    { "source": "/acerca-de", "destination": "/acerca_de.html" },
-    { "source": "/foro", "destination": "/foro.html" },
-    { "source": "/foro/tema", "destination": "/foro_tema.html" },
-    { "source": "/perfil", "destination": "/perfil.html" }
+    {
+      "source": "/api/:ruta*",
+      "destination": "https://api.TU-DOMINIO/:ruta*"
+    },
+    {
+      "source": "/recomend",
+      "destination": "/recomend.html"
+    },
+    {
+      "source": "/musica",
+      "destination": "/musica.html"
+    },
+    {
+      "source": "/registrarse",
+      "destination": "/cuenta.html"
+    },
+    {
+      "source": "/ingresar",
+      "destination": "/cuenta.html"
+    },
+    {
+      "source": "/opiniones",
+      "destination": "/opiniones.html"
+    },
+    {
+      "source": "/contacto",
+      "destination": "/contacto.html"
+    },
+    {
+      "source": "/preguntas-frecuentes",
+      "destination": "/preg_frec.html"
+    },
+    {
+      "source": "/acerca-de",
+      "destination": "/acerca_de.html"
+    },
+    {
+      "source": "/foro",
+      "destination": "/foro.html"
+    },
+    {
+      "source": "/foro/tema",
+      "destination": "/foro_tema.html"
+    },
+    {
+      "source": "/perfil",
+      "destination": "/perfil.html"
+    }
   ],
   "headers": [
     {
       "source": "/static/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     },
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        }
       ]
     }
   ]

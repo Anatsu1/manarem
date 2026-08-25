@@ -33,17 +33,30 @@
         async function cargarOpiniones() {
             const lista = document.getElementById('opiniones-list');
             const opiniones = await api.opiniones.listar();
-            lista.innerHTML = opiniones.map(op => `
+
+            if (!Array.isArray(opiniones)) {
+                lista.innerHTML = '<div class="login-aviso">No se pudieron cargar las opiniones. '
+                    + escaparHtml(opiniones.error || 'Probá de nuevo en un rato.') + '</div>';
+                return;
+            }
+
+            lista.innerHTML = opiniones.map(op => {
+                const nombre = escaparHtml(sinAcentos(op.nombre));
+                // El avatar es un nombre de archivo que elige el backend: se lo
+                // acota a eso, sin barras ni rutas relativas.
+                const avatar = /^[A-Za-z0-9._-]+$/.test(op.avatar || '') ? op.avatar : 'persona1-f.jpg';
+                return `
                 <article class="opinion-card">
-                    <img class="opinion-avatar" src="/static/img/${op.avatar}" alt="Avatar de ${op.nombre}">
+                    <img class="opinion-avatar" src="/static/img/${avatar}" alt="Avatar de ${nombre}">
                     <div class="opinion-body">
                         <header class="opinion-head">
-                            <h3>${op.nombre}</h3>
-                            <time datetime="${op.fecha}">${op.fecha}</time>
+                            <h3>${nombre}</h3>
+                            <time datetime="${escaparHtml(op.fecha)}">${escaparHtml(op.fecha)}</time>
                         </header>
-                        <p>${op.texto}</p>
+                        <p>${escaparHtml(op.texto)}</p>
                     </div>
-                </article>`).join('');
+                </article>`;
+            }).join('');
         }
 
         function setupFormOpinion() {

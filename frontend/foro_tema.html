@@ -53,22 +53,22 @@
             const t = result;
             detalleDiv.innerHTML = `
                 <article class="tema-detalle-card">
-                    <h2>${t.titulo}</h2>
+                    <h2>${escaparHtml(sinAcentos(t.titulo))}</h2>
                     <div class="tema-meta">
-                        <span class="tema-badge tema-badge--${t.categoria}">${t.categoria}</span>
-                        <span>por ${t.autor}</span>
-                        <time datetime="${t.fecha}">${t.fecha}</time>
+                        <span class="tema-badge tema-badge--${escaparHtml(t.categoria)}">${escaparHtml(t.categoria)}</span>
+                        <span>por ${escaparHtml(t.autor)}</span>
+                        <time datetime="${escaparHtml(t.fecha)}">${escaparHtml(t.fecha)}</time>
                     </div>
-                    <p class="tema-contenido">${t.contenido}</p>
+                    <p class="tema-contenido">${escaparHtml(t.contenido)}</p>
                 </article>
             `;
 
-            const n = t.respuestas.length;
-            respTitulo.textContent = 'Respuestas (' + n + ')';
-            respList.innerHTML = t.respuestas.map(r => `
+            const respuestas = Array.isArray(t.respuestas) ? t.respuestas : [];
+            respTitulo.textContent = 'Respuestas (' + respuestas.length + ')';
+            respList.innerHTML = respuestas.map(r => `
                 <article class="respuesta-card">
-                    <header class="respuesta-head"><strong>${r.autor}</strong><time datetime="${r.fecha}">${r.fecha}</time></header>
-                    <p>${r.contenido}</p>
+                    <header class="respuesta-head"><strong>${escaparHtml(r.autor)}</strong><time datetime="${escaparHtml(r.fecha)}">${escaparHtml(r.fecha)}</time></header>
+                    <p>${escaparHtml(r.contenido)}</p>
                 </article>
             `).join('');
 

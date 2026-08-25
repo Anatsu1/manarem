@@ -1,3 +1,32 @@
+// Fonstars (la fuente display) no tiene tildes: todo lo que se muestre con
+// --font-display pasa por aca. Ver "Reglas de identidad visual" en el README.
+function sinAcentos(texto) {
+    return (texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Escapa texto que va a parar a innerHTML. Todo lo que viene de la API es
+// contenido escrito por usuarios: nunca se interpola crudo.
+function escaparHtml(texto) {
+    return String(texto ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[c]));
+}
+
+// Deja pasar solo http y https, asi una URI javascript: no llega a un href.
+function urlSegura(url) {
+    if (typeof url !== 'string' || !url.trim()) return null;
+    try {
+        const u = new URL(url, window.location.origin);
+        return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 function showAlert(message, type) {
     const alertDiv = document.createElement('div');
     alertDiv.className = `alert alert-${type}`;
