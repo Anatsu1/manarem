@@ -10,31 +10,45 @@ Plataforma web para descubrir y recomendar animes, mangas y música relacionada.
 
 ### Backend
 - **Python 3** + **Flask** (API REST)
-- **SQLite** (etapa actual; PostgreSQL previsto)
+- **PostgreSQL** o **SQLite**, misma API — se elige con una variable de entorno
 - **Werkzeug** (hash de contraseñas)
+- **gunicorn** detrás de un proxy inverso en producción
 
 ## Inicio rápido
 
-### Frontend (etapa actual — funciona sin backend, con datos mock)
+### Todo junto
 
 ```bash
 git clone <repo>
 cd manarem_anime
-python3 dev_server.py
-```
 
-Abre `http://localhost:8000`. El server replica las URLs limpias de Vercel (`/recomend`, `/foro`, etc.). Los datos salen de `frontend/static/js/mock-data.js`; para volver al backend real, poner `MOCK_MODE = false` en `frontend/static/js/api.js`.
-
-### Backend (opcional en esta etapa)
-
-```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python app.py
+
+python app.py          # API en http://localhost:5000
+python3 dev_server.py  # sitio en http://localhost:8000
 ```
 
-Servidor en `http://localhost:5000`.
+`dev_server.py` replica las URLs limpias de Vercel (`/recomend`, `/foro`, etc.).
+Servido desde `localhost`, el frontend le pega solo a la API local.
+
+### Sin backend
+
+Cualquier página acepta `?mock=1`: el sitio pasa a los datos simulados de
+`frontend/static/js/mock-data.js` y sigue navegable entero. `?mock=0` lo apaga.
+Es lo mismo que usa la demo de Vercel mientras la API no esté publicada.
+
+### Con PostgreSQL en vez de SQLite
+
+```bash
+pip install -r requirements-postgres.txt
+createdb manarem
+MANAREM_DATABASE_URL=postgresql:///manarem python app.py
+```
+
+Las tablas se crean solas en los dos motores. Sin esa variable corre sobre
+SQLite y no hay nada que instalar.
 
 ## Estructura
 
@@ -60,9 +74,19 @@ manarem_anime/
 │   ├── static/img/            # Imágenes
 │   ├── static/video/          # ocean.mp4 (fondo del home)
 │   └── assets/fonts/          # Alkatra + Fonstars
-├── app.py                     # Backend Flask (foro + usuarios, SQLite)
+├── deploy/                    # systemd, nginx, Caddy y la guia de despliegue
+│   ├── README.md              # Como sale a produccion (y por que Vercel no
+│   │                          # necesita variables de entorno)
+│   ├── manarem-api.service
+│   ├── nginx-manarem.conf
+│   └── Caddyfile
+├── app.py                     # API Flask: auth, foro, opiniones, contacto
+├── db.py                      # Capa de datos: SQLite o PostgreSQL
+├── wsgi.py                    # Entrada para gunicorn
 ├── dev_server.py              # Server local con URLs limpias
+├── .env.example               # Todas las variables de entorno, comentadas
 ├── requirements.txt
+├── requirements-postgres.txt
 ├── README.md
 └── .gitignore
 ```
@@ -86,16 +110,53 @@ manarem_anime/
 
 ## API
 
+Base local: `http://localhost:5000`. Todas las respuestas son JSON, también los
+errores.
+
 | Método | Ruta | Descripción |
 |---|---|---|
+| GET | `/salud` | Estado y contadores del sitio |
 | POST | `/registro` | Crear usuario (`nombre`, `usuario`, `email`, `password`) |
-| POST | `/login` | Iniciar sesión (devuelve token y `usuario: {id, usuario, nombre, email}`) |
-| GET | `/foro/temas` | Listar temas del foro |
+| POST | `/login` | Iniciar sesión → `token` y `usuario: {id, usuario, nombre, email}` |
+| POST | `/logout` | Cerrar sesión (invalida el token) |
+| GET | `/perfil` | Datos, contadores y temas propios (requiere token) |
+| GET | `/foro/temas` | Listar temas (`?limite=&desde=`) |
 | POST | `/foro/temas` | Crear tema (requiere token) |
-| GET | `/foro/temas/<id>` | Tema con respuestas |
+| GET | `/foro/temas/<id>` | Tema con sus respuestas |
 | POST | `/foro/temas/<id>/respuestas` | Responder (requiere token) |
+| GET | `/opiniones` | Listar opiniones |
+| POST | `/opiniones` | Dejar una opinión (requiere token) |
+| POST | `/contacto` | Enviar un mensaje de contacto |
 
-El frontend funciona sin backend gracias a la capa mock (`MOCK_MODE` en `api.js`). El hero del home carga banners desde la API de AniList (fallback: Jikan, luego imágenes locales).
+El token va en `Authorization: Bearer <token>` y sale de `localStorage.user`.
+Categorías del foro: `anime`, `manga`, `musica`, `general`.
+
+**A qué API le pega el frontend** se decide en un solo lugar, `CONFIG` arriba de
+`frontend/static/js/api.js`. Con `apiBase` vacío el sitio usa los datos
+simulados, así que la demo nunca queda rota mientras el backend no esté online.
+La capa mock devuelve exactamente las mismas formas que el backend real.
+
+El hero del home carga banners desde la API de AniList (fallback: Jikan, y
+después imágenes locales).
+
+### Límites y cupos
+
+La API está pensada para un sitio de prueba en un VPS chico, así que trae topes
+puestos: 16 KB por pedido, largos máximos por campo, rate limiting por IP
+(altas, login, escrituras y un techo global), cupos globales de cuentas, temas,
+respuestas y opiniones, sesiones que vencen a los 7 días, y hash de contraseñas
+con pbkdf2 en vez del scrypt por defecto de Werkzeug, que reserva 32 MB de RAM
+por hash. Todo se ajusta con variables de entorno: ver `.env.example`.
+
+## Despliegue
+
+Frontend en Vercel, API en un VPS. **Vercel no necesita ninguna variable de
+entorno**: el sitio es estático y sin build step, así que nada de lo que se
+configure ahí llega al navegador. La configuración vive en `api.js` y
+`vercel.json`, y se aplica haciendo push.
+
+Los pasos completos —túnel o proxy inverso, systemd, base de datos, firewall de
+Oracle Cloud— están en [`deploy/README.md`](deploy/README.md).
 
 ## Identidad visual
 
@@ -151,26 +212,56 @@ Salieron de iteraciones concretas y **conviene respetarlas al rediseñar cada p�
 - ✅ **Seguridad**: los datos de AniList dejaron de interpolarse sin escapar en `home.js`. Se agregaron `escaparHtml()` y `urlSegura()` (solo `http`/`https`, así una `javascript:` URI no llega a un `href`).
 - ✅ **Accesibilidad**: volvió el anillo de foco en los formularios (había un `outline: none`).
 
+### Hecho (agosto 2026) — API conectada
+
+- ✅ **La API pasó de prototipo a servicio**. Ahora responde JSON también en los
+  errores, valida y acota cada campo, tiene rate limiting por IP, cupos
+  globales, sesiones que vencen, cabeceras de seguridad y un `/salud`.
+- ✅ **Dos motores, una API**: SQLite por defecto (se clona y arranca sin
+  instalar nada) o PostgreSQL con `MANAREM_DATABASE_URL`, con pool de
+  conexiones. El esquema y la migración de `nombre` funcionan en los dos, y las
+  respuestas se verificaron idénticas motor contra motor.
+- ✅ **Frontend conectado de verdad**: `CONFIG` en `api.js` decide a qué API se
+  le pega, con caída a datos simulados cuando no hay backend publicado y un
+  `?mock=1` de emergencia. `apiRequest` ya no explota con un 500 ni con un HTML
+  de error: todo sale como `{ error }`.
+- ✅ **Se cerró un XSS almacenado.** El foro, el detalle de tema y las opiniones
+  interpolaban texto de usuario sin escapar. Con datos mock no se notaba; con
+  registro abierto, cualquiera publicaba un `<img onerror>` y se ejecutaba en el
+  navegador de todos. `escaparHtml()` y `sinAcentos()` subieron a `app.js` para
+  que las tenga todo el sitio.
+- ✅ **El perfil muestra el nombre** que la API ya devolvía (deuda saldada).
+- ✅ **Despliegue documentado**: `deploy/` con systemd, nginx, Caddy y la guía.
+
 ### Próximos pasos
 
 **Rediseño de páginas interiores**, en este orden:
 
-- [ ] **Foro** (`/foro` y `/foro/tema`). Es la de más contenido real y la única con dos vistas; fija el patrón de "página con listado" que después reusan las demás.
-- [ ] **Perfil**. Ahí aterriza el `nombre` que ya se guarda: hoy `GET /perfil` lo devuelve pero la página sigue mostrando solo el usuario.
-- [ ] **Contenido en tanda**: recomendados, música y opiniones, que comparten la grilla de cards.
+- [ ] **Foro** (`/foro` y `/foro/tema`). Es la de más contenido real y la única
+  con dos vistas; fija el patrón de "página con listado" que después reusan las
+  demás.
+- [ ] **Perfil**.
+- [ ] **Contenido en tanda**: recomendados, música y opiniones, que comparten la
+  grilla de cards.
 - [ ] **Estáticas**: acerca de, contacto y preguntas frecuentes.
 
-**Backend** (pendiente, se hace después del frontend):
+**Backend**:
 
-- [ ] **Foro fase 2 (resto)**: editar/borrar temas y respuestas propios, paginación, expiración de sesiones.
+- [ ] **Publicar la API** en el VPS y apuntarle el frontend (`deploy/README.md`).
+- [ ] **Foro fase 2 (resto)**: editar y borrar temas y respuestas propios,
+  moderación.
 - [ ] **Perfiles**: avatar propio (hoy hay uno por defecto), edición de datos.
-- [ ] **Deploy**: frontend a Vercel (modo mock) y backend a PythonAnywhere; apuntar `API_BASE` a la URL de producción y `MOCK_MODE = false`.
-- [ ] **A evaluar**: migración a PostgreSQL, búsqueda de animes vía AniList en `/recomend`, moderación del foro, rate limiting en la API, tests automatizados del backend.
+- [ ] **A evaluar**: búsqueda de animes vía AniList en `/recomend`, tests
+  automatizados del backend, CSP en el frontend (pide sacar los `<script>` y
+  estilos inline primero).
 
 **Deuda conocida**:
 
-- [ ] Los términos y condiciones ya no se aceptan en ningún lado (se sacó la casilla). Si alguna vez importa, la salida sin casilla es una frase bajo el botón.
-- [ ] `perfil.html` no muestra el `nombre` que ya devuelve la API.
+- [ ] Los términos y condiciones ya no se aceptan en ningún lado (se sacó la
+  casilla). Si alguna vez importa, la salida sin casilla es una frase bajo el
+  botón.
+- [ ] El rate limiting vive en la memoria del proceso: con varios workers cada
+  uno lleva su cuenta. Un límite compartido de verdad necesitaría Redis.
 
 ## Autores
 
