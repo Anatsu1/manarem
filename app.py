@@ -1,147 +1,435 @@
+"""API de Manarem.
+
+Backend Flask + SQLite. Pensado para correr detras de un proxy inverso
+(nginx / Caddy / Cloudflare Tunnel) en un VPS chico.
+
+Es una API de un sitio de prueba, asi que viene con cupos y limites de uso
+deliberados: nadie deberia poder llenar el disco del VPS desde el formulario
+del foro. Todo se configura por variables de entorno (ver .env.example).
+"""
 import os
-import sqlite3
+import re
+import threading
+import time
 import uuid
-from datetime import date
+from collections import deque
+from datetime import date, datetime, timedelta, timezone
+from functools import wraps
 
-from flask import Flask, request, jsonify, g
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import check_password_hash, generate_password_hash
 
-app = Flask(__name__)
-CORS(app)
+import db
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manarem.db')
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+
+
+def env_texto(nombre, defecto=''):
+    valor = os.environ.get(nombre)
+    return valor.strip() if valor and valor.strip() else defecto
+
+
+def env_entero(nombre, defecto):
+    try:
+        return int(env_texto(nombre, str(defecto)))
+    except ValueError:
+        return defecto
+
+
+def env_bool(nombre, defecto=False):
+    return env_texto(nombre, '1' if defecto else '0').lower() in ('1', 'true', 'yes', 'on', 'si')
+
+
+def env_lista(nombre, defecto):
+    crudo = env_texto(nombre, '')
+    if not crudo:
+        return list(defecto)
+    return [p.strip() for p in crudo.split(',') if p.strip()]
+
+
+# Sin MANAREM_DATABASE_URL corre sobre SQLite (MANAREM_DB); con una URL de
+# Postgres usa ese motor y un pool de conexiones. Ver db.py.
+DB_PATH = env_texto('MANAREM_DB', os.path.join(RAIZ, 'manarem.db'))
+MAX_CONEXIONES = env_entero('MANAREM_MAX_CONEXIONES', 5)
+
+ORIGENES = env_lista('MANAREM_CORS_ORIGINS', [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+])
+
+CONFIA_PROXY = env_bool('MANAREM_TRUST_PROXY', False)
+MAX_BODY = env_entero('MANAREM_MAX_BODY', 16 * 1024)
+SESION_DIAS = env_entero('MANAREM_SESION_DIAS', 7)
+SESIONES_POR_USUARIO = env_entero('MANAREM_SESIONES_POR_USUARIO', 5)
 
 CATEGORIAS_VALIDAS = ['anime', 'manga', 'musica', 'general']
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s.]+\.[^@\s]+$')
+CONTROL_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+# Largos maximos por campo. Cortan el texto antes de que llegue a la base.
+LARGO = {
+    'usuario': env_entero('MANAREM_LARGO_USUARIO', 32),
+    'nombre': env_entero('MANAREM_LARGO_NOMBRE', 60),
+    'email': env_entero('MANAREM_LARGO_EMAIL', 120),
+    'password': env_entero('MANAREM_LARGO_PASSWORD', 128),
+    'titulo': env_entero('MANAREM_LARGO_TITULO', 120),
+    'contenido': env_entero('MANAREM_LARGO_CONTENIDO', 4000),
+    'respuesta': env_entero('MANAREM_LARGO_RESPUESTA', 2000),
+    'opinion': env_entero('MANAREM_LARGO_OPINION', 600),
+    'mensaje': env_entero('MANAREM_LARGO_MENSAJE', 2000),
+}
+
+PASSWORD_MINIMO = env_entero('MANAREM_PASSWORD_MINIMO', 8)
+
+# El default de Werkzeug es scrypt:32768:8:1, que reserva 32 MB de RAM por cada
+# hash. Con varios logins en paralelo eso tumba un VPS chico, asi que se usa
+# pbkdf2: mismo orden de seguridad, memoria constante. Los hashes viejos siguen
+# validando solos porque check_password_hash lee el metodo del hash guardado.
+METODO_HASH = env_texto('MANAREM_METODO_HASH', 'pbkdf2:sha256:200000')
+USUARIO_RE = re.compile(r'^[A-Za-z0-9._-]{3,%d}$' % LARGO['usuario'])
+
+# Cupos globales: el sitio es una demo, no un servicio. Cuando se llenan, la
+# API responde 429 en vez de seguir escribiendo en el disco del VPS.
+CUPO = {
+    'usuarios': env_entero('MANAREM_CUPO_USUARIOS', 200),
+    'temas': env_entero('MANAREM_CUPO_TEMAS', 500),
+    'respuestas_por_tema': env_entero('MANAREM_CUPO_RESPUESTAS_TEMA', 200),
+    'opiniones': env_entero('MANAREM_CUPO_OPINIONES', 300),
+    'opiniones_por_usuario': env_entero('MANAREM_CUPO_OPINIONES_USUARIO', 3),
+    'mensajes': env_entero('MANAREM_CUPO_MENSAJES', 300),
+}
+
+TEMAS_POR_PAGINA = env_entero('MANAREM_TEMAS_POR_PAGINA', 50)
+TEMAS_MAXIMO = env_entero('MANAREM_TEMAS_MAXIMO', 100)
+OPINIONES_MAXIMO = env_entero('MANAREM_OPINIONES_MAXIMO', 100)
+
+# Techo grueso para cualquier pedido, aparte de los limites por endpoint.
+GLOBAL_MAXIMO = env_entero('MANAREM_GLOBAL_MAXIMO', 300)
+GLOBAL_VENTANA = env_entero('MANAREM_GLOBAL_VENTANA', 60)
+
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = MAX_BODY
+
+if CONFIA_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+CORS(
+    app,
+    origins='*' if ORIGENES == ['*'] else ORIGENES,
+    methods=['GET', 'POST', 'OPTIONS'],
+    allow_headers=['Content-Type', 'Authorization'],
+    max_age=86400,
+)
+
+
+class ErrorApi(Exception):
+    def __init__(self, mensaje, codigo=400):
+        super().__init__(mensaje)
+        self.mensaje = mensaje
+        self.codigo = codigo
+
+
+class Limitador:
+    """Ventana deslizante en memoria, sin dependencias.
+
+    Vive en el proceso: con varios workers de gunicorn cada uno lleva su propia
+    cuenta, asi que el limite real es el configurado por la cantidad de workers.
+    Para un sitio de prueba alcanza; correr con 1 o 2 workers lo mantiene fiel.
+    """
+
+    def __init__(self):
+        self._eventos = {}
+        self._lock = threading.Lock()
+
+    def permitido(self, clave, maximo, ventana):
+        ahora = time.monotonic()
+        with self._lock:
+            if len(self._eventos) > 5000:
+                self._purgar(ahora)
+            cola = self._eventos.setdefault(clave, deque())
+            while cola and ahora - cola[0] > ventana:
+                cola.popleft()
+            if len(cola) >= maximo:
+                return False
+            cola.append(ahora)
+            return True
+
+    def _purgar(self, ahora):
+        for clave in [c for c, cola in self._eventos.items() if not cola or ahora - cola[-1] > 3600]:
+            self._eventos.pop(clave, None)
+
+
+limitador = Limitador()
+
+
+def ip_cliente():
+    return request.remote_addr or 'desconocida'
+
+
+def limite(maximo, ventana, ambito):
+    """Tope de pedidos por IP y por ambito, en segundos."""
+    def decorador(vista):
+        @wraps(vista)
+        def envoltura(*args, **kwargs):
+            if not limitador.permitido(f'{ambito}:{ip_cliente()}', maximo, ventana):
+                raise ErrorApi('Demasiados pedidos. Esperá un rato y probá de nuevo.', 429)
+            return vista(*args, **kwargs)
+        return envoltura
+    return decorador
+
+
+def gastar_escritura(maximo, ambito, ventana=3600):
+    """Consume una unidad del cupo de escritura de esta IP.
+
+    Se llama recien cuando el pedido ya paso autenticacion y validacion: un
+    error de tipeo, una categoria mal escrita o un pedido sin token no tienen
+    por que gastarle el cupo a nadie, y menos a quien comparta la salida a
+    internet. El techo global sigue cubriendo el caso del que solo inunda.
+    """
+    if not limitador.permitido(f'escritura-{ambito}:{ip_cliente()}', maximo, ventana):
+        raise ErrorApi('Estas publicando demasiado seguido. Esperá un rato.', 429)
 
 
 def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-    return g.db
+    if 'conexion' not in g:
+        g.conexion = db.conectar(DB_PATH, MAX_CONEXIONES)
+    return g.conexion
 
 
 @app.teardown_appcontext
 def close_db(exception):
-    db = g.pop('db', None)
-    if db is not None:
-        db.close()
+    conexion = g.pop('conexion', None)
+    if conexion is not None:
+        conexion.close()
 
 
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS usuarios(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario TEXT UNIQUE NOT NULL,
-            nombre TEXT,
-            email TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            creado TEXT NOT NULL
-        )''')
-        cols = [r[1] for r in conn.execute('PRAGMA table_info(usuarios)')]
-        if 'nombre' not in cols:
-            conn.execute('ALTER TABLE usuarios ADD COLUMN nombre TEXT')
-        conn.execute('''CREATE TABLE IF NOT EXISTS sesiones(
-            token TEXT PRIMARY KEY,
-            usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
-            creado TEXT NOT NULL
-        )''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS temas(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titulo TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            contenido TEXT NOT NULL,
-            autor_id INTEGER NOT NULL REFERENCES usuarios(id),
-            fecha TEXT NOT NULL
-        )''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS respuestas(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tema_id INTEGER NOT NULL REFERENCES temas(id),
-            contenido TEXT NOT NULL,
-            autor_id INTEGER NOT NULL REFERENCES usuarios(id),
-            fecha TEXT NOT NULL
-        )''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS opiniones(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            autor_id INTEGER NOT NULL REFERENCES usuarios(id),
-            nombre TEXT NOT NULL,
-            avatar TEXT NOT NULL,
-            texto TEXT NOT NULL,
-            fecha TEXT NOT NULL
-        )''')
-        conn.execute('''CREATE TABLE IF NOT EXISTS contacto_mensajes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            email TEXT NOT NULL,
-            mensaje TEXT NOT NULL,
-            fecha TEXT NOT NULL
-        )''')
-        conn.commit()
+def hoy():
+    return date.today().isoformat()
 
 
-def usuario_actual(request):
+def ahora_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def cuerpo():
+    datos = request.get_json(silent=True)
+    if not isinstance(datos, dict):
+        raise ErrorApi('El cuerpo del pedido tiene que ser un objeto JSON')
+    return datos
+
+
+def campo(datos, nombre, maximo, minimo=1, etiqueta=None):
+    etiqueta = etiqueta or nombre.capitalize()
+    valor = datos.get(nombre)
+    if valor is None:
+        valor = ''
+    if not isinstance(valor, str):
+        raise ErrorApi(f'{etiqueta} tiene que ser texto')
+    valor = CONTROL_RE.sub('', valor).strip()
+    if len(valor) < minimo:
+        raise ErrorApi(f'{etiqueta} es obligatorio' if minimo == 1
+                       else f'{etiqueta} necesita al menos {minimo} caracteres')
+    if len(valor) > maximo:
+        raise ErrorApi(f'{etiqueta} no puede superar los {maximo} caracteres')
+    return valor
+
+
+def contar(conexion, tabla, where='', params=()):
+    sql = f'SELECT COUNT(*) AS c FROM {tabla}'
+    if where:
+        sql += f' WHERE {where}'
+    return conexion.execute(sql, params).fetchone()['c']
+
+
+def revisar_cupo(conexion, tabla, tope, mensaje, where='', params=()):
+    if tope >= 0 and contar(conexion, tabla, where, params) >= tope:
+        raise ErrorApi(mensaje, 429)
+
+
+def purgar_sesiones(conexion):
+    corte = (datetime.now(timezone.utc) - timedelta(days=SESION_DIAS)).isoformat()
+    conexion.execute('DELETE FROM sesiones WHERE creado < ?', (corte,))
+
+
+def usuario_actual():
     auth = request.headers.get('Authorization', '')
     if not auth.startswith('Bearer '):
         return None
-    token = auth[7:]
-    db = get_db()
-    return db.execute(
-        'SELECT u.id, u.usuario, u.email FROM sesiones s JOIN usuarios u ON s.usuario_id = u.id WHERE s.token = ?',
+    token = auth[7:].strip()
+    if not token:
+        return None
+    conexion = get_db()
+    fila = conexion.execute(
+        '''SELECT s.creado AS sesion_creada, u.id, u.usuario, u.nombre, u.email
+           FROM sesiones s JOIN usuarios u ON s.usuario_id = u.id
+           WHERE s.token = ?''',
         (token,)
     ).fetchone()
+    if not fila:
+        return None
+    try:
+        creada = datetime.fromisoformat(fila['sesion_creada'])
+    except ValueError:
+        creada = None
+    if creada is None:
+        return fila
+    if creada.tzinfo is None:
+        creada = creada.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - creada > timedelta(days=SESION_DIAS):
+        conexion.execute('DELETE FROM sesiones WHERE token = ?', (token,))
+        conexion.commit()
+        return None
+    return fila
 
 
-init_db()
+def exigir_usuario():
+    user = usuario_actual()
+    if not user:
+        raise ErrorApi('No autenticado', 401)
+    return user
+
+
+db.init_esquema(DB_PATH, MAX_CONEXIONES)
+
+
+@app.before_request
+def techo_global():
+    # OPTIONS queda afuera: es el preflight de CORS y no toca la base.
+    if request.method == 'OPTIONS':
+        return None
+    if not limitador.permitido(f'global:{ip_cliente()}', GLOBAL_MAXIMO, GLOBAL_VENTANA):
+        return jsonify({'error': 'Demasiados pedidos. Esperá un rato y probá de nuevo.'}), 429
+    return None
+
+
+@app.after_request
+def cabeceras_seguras(respuesta):
+    respuesta.headers['X-Content-Type-Options'] = 'nosniff'
+    respuesta.headers['Referrer-Policy'] = 'no-referrer'
+    respuesta.headers['Cache-Control'] = 'no-store'
+    respuesta.headers.pop('Server', None)
+    return respuesta
+
+
+@app.errorhandler(ErrorApi)
+def _error_api(e):
+    return jsonify({'error': e.mensaje}), e.codigo
+
+
+@app.errorhandler(400)
+def _error_400(e):
+    return jsonify({'error': 'Pedido invalido'}), 400
+
+
+@app.errorhandler(404)
+def _error_404(e):
+    return jsonify({'error': 'Recurso no encontrado'}), 404
+
+
+@app.errorhandler(405)
+def _error_405(e):
+    return jsonify({'error': 'Metodo no permitido'}), 405
+
+
+@app.errorhandler(413)
+def _error_413(e):
+    return jsonify({'error': 'El contenido enviado es demasiado grande'}), 413
+
+
+@app.errorhandler(500)
+def _error_500(e):
+    app.logger.exception('Error no controlado')
+    return jsonify({'error': 'Error interno del servidor'}), 500
+
+
+def _error_base(e):
+    app.logger.exception('Error de base de datos')
+    return jsonify({'error': 'Error interno del servidor'}), 500
+
+
+for _clase_error in db.ERRORES_BASE:
+    app.register_error_handler(_clase_error, _error_base)
+
+
+@app.route('/salud', methods=['GET'])
+def salud():
+    conexion = get_db()
+    return jsonify({
+        'estado': 'ok',
+        'usuarios': contar(conexion, 'usuarios'),
+        'temas': contar(conexion, 'temas'),
+        'opiniones': contar(conexion, 'opiniones'),
+    }), 200
 
 
 @app.route('/registro', methods=['POST'])
+@limite(20, 3600, 'registro-intentos')
 def registro():
-    data = request.get_json(silent=True) or {}
-    usuario = (data.get('usuario') or '').strip()
-    nombre = (data.get('nombre') or '').strip()
-    email = (data.get('email') or '').strip()
-    password = (data.get('password') or '').strip()
+    datos = cuerpo()
+    usuario = campo(datos, 'usuario', LARGO['usuario'], 3, 'El usuario')
+    nombre = campo(datos, 'nombre', LARGO['nombre'], 2, 'El nombre')
+    email = campo(datos, 'email', LARGO['email'], 5, 'El email')
+    password = campo(datos, 'password', LARGO['password'], PASSWORD_MINIMO, 'La contraseña')
 
-    if not usuario or not nombre or not email or not password:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
+    if not USUARIO_RE.match(usuario):
+        raise ErrorApi('El usuario solo puede tener letras, numeros, punto, guion y guion bajo')
+    if not EMAIL_RE.match(email):
+        raise ErrorApi('El email no parece valido')
 
-    db = get_db()
+    conexion = get_db()
+    revisar_cupo(conexion, 'usuarios', CUPO['usuarios'],
+                 'El sitio de prueba llego al maximo de cuentas registradas')
+
+    if conexion.execute('SELECT id FROM usuarios WHERE usuario = ?', (usuario,)).fetchone():
+        return jsonify({'error': 'El usuario ya existe'}), 409
+
+    # El tope de altas se cuenta recien aca: un error de tipeo o un usuario
+    # repetido no gastan cupo, solo las cuentas que realmente se crean.
+    if not limitador.permitido(f'registro-altas:{ip_cliente()}', 5, 3600):
+        raise ErrorApi('Se crearon demasiadas cuentas desde esta conexion. Probá mas tarde.', 429)
+
     try:
-        db.execute(
+        conexion.execute(
             'INSERT INTO usuarios (usuario, nombre, email, password_hash, creado) VALUES (?, ?, ?, ?, ?)',
-            (usuario, nombre, email, generate_password_hash(password), date.today().isoformat())
+            (usuario, nombre, email, generate_password_hash(password, method=METODO_HASH), hoy())
         )
-        db.commit()
-    except sqlite3.IntegrityError:
+        conexion.commit()
+    except db.ERRORES_INTEGRIDAD:
         return jsonify({'error': 'El usuario ya existe'}), 409
 
     return jsonify({'mensaje': 'Usuario registrado correctamente'}), 201
 
 
 @app.route('/login', methods=['POST'])
+@limite(10, 300, 'login')
 def login():
-    data = request.get_json(silent=True) or {}
-    usuario = (data.get('usuario') or '').strip()
-    password = (data.get('password') or '').strip()
+    datos = cuerpo()
+    usuario = campo(datos, 'usuario', LARGO['usuario'], 1, 'El usuario')
+    password = campo(datos, 'password', LARGO['password'], 1, 'La contraseña')
 
-    if not usuario or not password:
-        return jsonify({'error': 'Usuario y contraseña son obligatorios'}), 400
-
-    db = get_db()
-    user = db.execute(
-        'SELECT * FROM usuarios WHERE usuario = ?', (usuario,)
-    ).fetchone()
+    conexion = get_db()
+    user = conexion.execute('SELECT * FROM usuarios WHERE usuario = ?', (usuario,)).fetchone()
 
     if not user or not check_password_hash(user['password_hash'], password):
         return jsonify({'error': 'Credenciales inválidas'}), 401
 
+    purgar_sesiones(conexion)
+    sobrantes = conexion.execute(
+        '''SELECT token FROM sesiones WHERE usuario_id = ?
+           ORDER BY creado DESC LIMIT 1000000 OFFSET ?''',
+        (user['id'], max(SESIONES_POR_USUARIO - 1, 0))
+    ).fetchall()
+    for fila in sobrantes:
+        conexion.execute('DELETE FROM sesiones WHERE token = ?', (fila['token'],))
+
     token = uuid.uuid4().hex
-    db.execute(
+    conexion.execute(
         'INSERT INTO sesiones (token, usuario_id, creado) VALUES (?, ?, ?)',
-        (token, user['id'], date.today().isoformat())
+        (token, user['id'], ahora_iso())
     )
-    db.commit()
+    conexion.commit()
 
     return jsonify({
         'mensaje': 'Inicio de sesión exitoso',
@@ -155,49 +443,94 @@ def login():
     }), 200
 
 
+@app.route('/logout', methods=['POST'])
+def logout():
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        conexion = get_db()
+        conexion.execute('DELETE FROM sesiones WHERE token = ?', (auth[7:].strip(),))
+        conexion.commit()
+    return jsonify({'mensaje': 'Sesion cerrada'}), 200
+
+
+@app.route('/perfil', methods=['GET'])
+def perfil():
+    user = exigir_usuario()
+    conexion = get_db()
+
+    creado = conexion.execute(
+        'SELECT creado FROM usuarios WHERE id = ?', (user['id'],)
+    ).fetchone()['creado']
+
+    temas = conexion.execute(
+        'SELECT id, titulo, categoria, fecha FROM temas WHERE autor_id = ? ORDER BY id DESC',
+        (user['id'],)
+    ).fetchall()
+
+    return jsonify({
+        'usuario': user['usuario'],
+        'nombre': user['nombre'],
+        'email': user['email'],
+        'creado': creado,
+        'total_temas': contar(conexion, 'temas', 'autor_id = ?', (user['id'],)),
+        'total_respuestas': contar(conexion, 'respuestas', 'autor_id = ?', (user['id'],)),
+        'temas': [dict(t) for t in temas]
+    }), 200
+
+
 @app.route('/foro/temas', methods=['GET'])
+@limite(120, 60, 'lectura')
 def listar_temas():
-    db = get_db()
-    filas = db.execute(
+    try:
+        limitar = int(request.args.get('limite', TEMAS_POR_PAGINA))
+        desde = int(request.args.get('desde', 0))
+    except ValueError:
+        raise ErrorApi('Los parametros limite y desde tienen que ser numeros')
+
+    limitar = max(1, min(limitar, TEMAS_MAXIMO))
+    desde = max(0, desde)
+
+    conexion = get_db()
+    filas = conexion.execute(
         '''SELECT t.id, t.titulo, t.categoria, u.usuario AS autor, t.fecha,
            (SELECT COUNT(*) FROM respuestas r WHERE r.tema_id = t.id) AS respuestas
            FROM temas t JOIN usuarios u ON t.autor_id = u.id
-           ORDER BY t.id DESC'''
+           ORDER BY t.id DESC LIMIT ? OFFSET ?''',
+        (limitar, desde)
     ).fetchall()
     return jsonify([dict(f) for f in filas])
 
 
 @app.route('/foro/temas', methods=['POST'])
 def crear_tema():
-    user = usuario_actual(request)
-    if not user:
-        return jsonify({'error': 'No autenticado'}), 401
-
-    data = request.get_json(silent=True) or {}
-    titulo = (data.get('titulo') or '').strip()
-    categoria = (data.get('categoria') or '').strip()
-    contenido = (data.get('contenido') or '').strip()
-
-    if not titulo or not categoria or not contenido:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
+    user = exigir_usuario()
+    datos = cuerpo()
+    titulo = campo(datos, 'titulo', LARGO['titulo'], 3, 'El titulo')
+    categoria = campo(datos, 'categoria', 20, 1, 'La categoria')
+    contenido = campo(datos, 'contenido', LARGO['contenido'], 3, 'El contenido')
 
     if categoria not in CATEGORIAS_VALIDAS:
-        return jsonify({'error': 'Categoría inválida'}), 400
+        raise ErrorApi('Categoría inválida')
 
-    db = get_db()
-    cursor = db.execute(
+    conexion = get_db()
+    revisar_cupo(conexion, 'temas', CUPO['temas'],
+                 'El foro de prueba llego al maximo de temas')
+    gastar_escritura(10, 'temas')
+
+    resultado = conexion.insertar(
         'INSERT INTO temas (titulo, categoria, contenido, autor_id, fecha) VALUES (?, ?, ?, ?, ?)',
-        (titulo, categoria, contenido, user['id'], date.today().isoformat())
+        (titulo, categoria, contenido, user['id'], hoy())
     )
-    db.commit()
+    conexion.commit()
 
-    return jsonify({'mensaje': 'Tema creado correctamente', 'id': cursor.lastrowid}), 201
+    return jsonify({'mensaje': 'Tema creado correctamente', 'id': resultado.id_insertado}), 201
 
 
 @app.route('/foro/temas/<int:id>', methods=['GET'])
+@limite(120, 60, 'lectura')
 def obtener_tema(id):
-    db = get_db()
-    tema = db.execute(
+    conexion = get_db()
+    tema = conexion.execute(
         '''SELECT t.id, t.titulo, t.categoria, t.contenido, u.usuario AS autor, t.fecha
            FROM temas t JOIN usuarios u ON t.autor_id = u.id
            WHERE t.id = ?''',
@@ -207,7 +540,7 @@ def obtener_tema(id):
     if not tema:
         return jsonify({'error': 'Tema no encontrado'}), 404
 
-    respuestas = db.execute(
+    respuestas = conexion.execute(
         '''SELECT r.id, u.usuario AS autor, r.fecha, r.contenido
            FROM respuestas r JOIN usuarios u ON r.autor_id = u.id
            WHERE r.tema_id = ?
@@ -223,128 +556,85 @@ def obtener_tema(id):
 
 @app.route('/foro/temas/<int:id>/respuestas', methods=['POST'])
 def crear_respuesta(id):
-    user = usuario_actual(request)
-    if not user:
-        return jsonify({'error': 'No autenticado'}), 401
+    user = exigir_usuario()
 
-    db = get_db()
-    tema = db.execute('SELECT id FROM temas WHERE id = ?', (id,)).fetchone()
-    if not tema:
+    conexion = get_db()
+    if not conexion.execute('SELECT id FROM temas WHERE id = ?', (id,)).fetchone():
         return jsonify({'error': 'Tema no encontrado'}), 404
 
-    data = request.get_json(silent=True) or {}
-    contenido = (data.get('contenido') or '').strip()
+    contenido = campo(cuerpo(), 'contenido', LARGO['respuesta'], 1, 'El contenido')
 
-    if not contenido:
-        return jsonify({'error': 'El contenido no puede estar vacío'}), 400
+    revisar_cupo(conexion, 'respuestas', CUPO['respuestas_por_tema'],
+                 'Este tema llego al maximo de respuestas', 'tema_id = ?', (id,))
+    gastar_escritura(30, 'respuestas')
 
-    cursor = db.execute(
+    resultado = conexion.insertar(
         'INSERT INTO respuestas (tema_id, contenido, autor_id, fecha) VALUES (?, ?, ?, ?)',
-        (id, contenido, user['id'], date.today().isoformat())
+        (id, contenido, user['id'], hoy())
     )
-    db.commit()
+    conexion.commit()
 
-    return jsonify({'mensaje': 'Respuesta creada correctamente', 'id': cursor.lastrowid}), 201
-
-
-@app.route('/contacto', methods=['POST'])
-def contacto():
-    data = request.get_json(silent=True) or {}
-    nombre = (data.get('nombre') or '').strip()
-    email = (data.get('email') or '').strip()
-    mensaje = (data.get('mensaje') or '').strip()
-
-    if not nombre or not email or not mensaje:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
-
-    db = get_db()
-    db.execute(
-        'INSERT INTO contacto_mensajes (nombre, email, mensaje, fecha) VALUES (?, ?, ?, ?)',
-        (nombre, email, mensaje, date.today().isoformat())
-    )
-    db.commit()
-
-    return jsonify({'mensaje': 'Mensaje enviado correctamente'}), 201
+    return jsonify({'mensaje': 'Respuesta creada correctamente', 'id': resultado.id_insertado}), 201
 
 
 @app.route('/opiniones', methods=['GET'])
+@limite(120, 60, 'lectura')
 def listar_opiniones():
-    db = get_db()
-    filas = db.execute(
-        'SELECT id, nombre, avatar, texto, fecha FROM opiniones ORDER BY id DESC'
+    conexion = get_db()
+    filas = conexion.execute(
+        'SELECT id, nombre, avatar, texto, fecha FROM opiniones ORDER BY id DESC LIMIT ?',
+        (OPINIONES_MAXIMO,)
     ).fetchall()
     return jsonify([dict(f) for f in filas])
 
 
 @app.route('/opiniones', methods=['POST'])
 def crear_opinion():
-    user = usuario_actual(request)
-    if not user:
-        return jsonify({'error': 'No autenticado'}), 401
+    user = exigir_usuario()
+    texto = campo(cuerpo(), 'texto', LARGO['opinion'], 1, 'El texto')
 
-    data = request.get_json(silent=True) or {}
-    texto = (data.get('texto') or '').strip()
+    conexion = get_db()
+    revisar_cupo(conexion, 'opiniones', CUPO['opiniones'],
+                 'El muro de opiniones de prueba esta lleno')
+    revisar_cupo(conexion, 'opiniones', CUPO['opiniones_por_usuario'],
+                 'Ya dejaste todas las opiniones que permite el sitio de prueba',
+                 'autor_id = ?', (user['id'],))
+    gastar_escritura(10, 'opiniones')
 
-    if not texto:
-        return jsonify({'error': 'El texto no puede estar vacío'}), 400
-
-    db = get_db()
-    cursor = db.execute(
+    resultado = conexion.insertar(
         'INSERT INTO opiniones (autor_id, nombre, avatar, texto, fecha) VALUES (?, ?, ?, ?, ?)',
-        (user['id'], user['usuario'], 'persona1-f.jpg', texto, date.today().isoformat())
+        (user['id'], user['usuario'], 'persona1-f.jpg', texto, hoy())
     )
-    db.commit()
+    conexion.commit()
 
-    return jsonify({'mensaje': 'Opinion enviada', 'id': cursor.lastrowid}), 201
-
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    auth = request.headers.get('Authorization', '')
-    if auth.startswith('Bearer '):
-        token = auth[7:]
-        db = get_db()
-        db.execute('DELETE FROM sesiones WHERE token = ?', (token,))
-        db.commit()
-    return jsonify({'mensaje': 'Sesion cerrada'}), 200
+    return jsonify({'mensaje': 'Opinion enviada', 'id': resultado.id_insertado}), 201
 
 
-@app.route('/perfil', methods=['GET'])
-def perfil():
-    user = usuario_actual(request)
-    if not user:
-        return jsonify({'error': 'No autenticado'}), 401
+@app.route('/contacto', methods=['POST'])
+def contacto():
+    datos = cuerpo()
+    nombre = campo(datos, 'nombre', LARGO['nombre'], 2, 'El nombre')
+    email = campo(datos, 'email', LARGO['email'], 5, 'El email')
+    mensaje = campo(datos, 'mensaje', LARGO['mensaje'], 5, 'El mensaje')
 
-    db = get_db()
-    fila = db.execute(
-        'SELECT creado, nombre FROM usuarios WHERE id = ?', (user['id'],)
-    ).fetchone()
-    creado = fila['creado']
-    nombre = fila['nombre']
+    if not EMAIL_RE.match(email):
+        raise ErrorApi('El email no parece valido')
 
-    total_temas = db.execute(
-        'SELECT COUNT(*) AS c FROM temas WHERE autor_id = ?', (user['id'],)
-    ).fetchone()['c']
+    conexion = get_db()
+    revisar_cupo(conexion, 'contacto_mensajes', CUPO['mensajes'],
+                 'La casilla de contacto de prueba esta llena')
+    gastar_escritura(5, 'contacto')
 
-    total_respuestas = db.execute(
-        'SELECT COUNT(*) AS c FROM respuestas WHERE autor_id = ?', (user['id'],)
-    ).fetchone()['c']
+    conexion.execute(
+        'INSERT INTO contacto_mensajes (nombre, email, mensaje, fecha) VALUES (?, ?, ?, ?)',
+        (nombre, email, mensaje, hoy())
+    )
+    conexion.commit()
 
-    temas = db.execute(
-        'SELECT id, titulo, categoria, fecha FROM temas WHERE autor_id = ? ORDER BY id DESC',
-        (user['id'],)
-    ).fetchall()
-
-    return jsonify({
-        'usuario': user['usuario'],
-        'nombre': nombre,
-        'email': user['email'],
-        'creado': creado,
-        'total_temas': total_temas,
-        'total_respuestas': total_respuestas,
-        'temas': [dict(t) for t in temas]
-    }), 200
+    return jsonify({'mensaje': 'Mensaje enviado correctamente'}), 201
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host=env_texto('MANAREM_HOST', '127.0.0.1'),
+            port=env_entero('MANAREM_PORT', 5000),
+            debug=env_bool('MANAREM_DEBUG', False))

@@ -1,2 +1,8 @@
 Flask
 flask-cors
+gunicorn
+
+# Solo si se corre sobre PostgreSQL (MANAREM_DATABASE_URL). Sin esto el
+# proyecto arranca igual: usa SQLite, que viene con Python.
+# psycopg[binary]
+# psycopg_pool

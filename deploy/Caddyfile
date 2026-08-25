@@ -1,0 +1,9 @@
+# Alternativa a nginx: Caddy saca el certificado solo.
+# /etc/caddy/Caddyfile
+
+api.TU-DOMINIO {
+    reverse_proxy 127.0.0.1:5000
+    request_body {
+        max_size 64KB
+    }
+}
