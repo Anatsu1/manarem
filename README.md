@@ -150,13 +150,26 @@ por hash. Todo se ajusta con variables de entorno: ver `.env.example`.
 
 ## Despliegue
 
-Frontend en Vercel, API en un VPS. **Vercel no necesita ninguna variable de
-entorno**: el sitio es estático y sin build step, así que nada de lo que se
-configure ahí llega al navegador. La configuración vive en `api.js` y
-`vercel.json`, y se aplica haciendo push.
+**En producción**: el sitio está en `manarem.vercel.app` y la API en
+`manarem-api.augustofc.com`, como contenedor detrás de Traefik en un VPS, sobre
+el PostgreSQL que ya corría ahí.
 
-Los pasos completos —túnel o proxy inverso, systemd, base de datos, firewall de
-Oracle Cloud— están en [`deploy/README.md`](deploy/README.md).
+```
+navegador ──► manarem.vercel.app          (estático, Vercel)
+                  │  /api/*  (rewrite de vercel.json)
+                  ▼
+              Cloudflare ──► Traefik ──► manarem-api ──► postgres
+```
+
+Cada push a `master` que toque la API dispara un build ARM64 en Actions que
+publica la imagen en `ghcr.io/anatsu1/manarem-api`.
+
+**Vercel no necesita ninguna variable de entorno**: el sitio es estático y sin
+build step, así que nada de lo que se configure ahí llega al navegador. A qué
+API le pega se decide en `frontend/static/js/api.js` y `frontend/vercel.json`.
+
+Todo lo demás —el pipeline, la base, cómo se determina la IP del visitante y qué
+queda abierto— está en [`deploy/README.md`](deploy/README.md).
 
 ## Identidad visual
 
@@ -212,6 +225,23 @@ Salieron de iteraciones concretas y **conviene respetarlas al rediseñar cada p�
 - ✅ **Seguridad**: los datos de AniList dejaron de interpolarse sin escapar en `home.js`. Se agregaron `escaparHtml()` y `urlSegura()` (solo `http`/`https`, así una `javascript:` URI no llega a un `href`).
 - ✅ **Accesibilidad**: volvió el anillo de foco en los formularios (había un `outline: none`).
 
+### Hecho (agosto 2026) — API en producción
+
+- ✅ **La API está online** en `manarem-api.augustofc.com`, como contenedor
+  detrás de Traefik, con su propio rol y base en el PostgreSQL del VPS. El
+  frontend de Vercel le pega por el proxy `/api`, así que los pedidos salen al
+  mismo origen: sin CORS y sin contenido mixto.
+- ✅ **Pipeline igual al del portafolio**: push a `master` → build ARM64 con
+  QEMU → `ghcr.io/anatsu1/manarem-api` → `docker compose pull` en el VPS.
+- ✅ **Se cerró un agujero de rate limiting** que sólo apareció al desplegar.
+  Traefik reescribe `X-Forwarded-For` porque Cloudflare no está en sus
+  `trustedIPs`, así que la API veía su propia IP interna en todos los pedidos y
+  el límite por IP era uno solo compartido. Se pasó a `CF-Connecting-IP`, pero
+  creerle sin condiciones era peor: pegándole directo al VPS, salteando
+  Cloudflare, se podía declarar cualquier IP y estrenar un cupo por pedido.
+  Ahora se exige que el pedido venga de Traefik **y** que quien le habló a
+  Traefik sea un edge de Cloudflare. Verificado en los dos sentidos.
+
 ### Hecho (agosto 2026) — API conectada
 
 - ✅ **La API pasó de prototipo a servicio**. Ahora responde JSON también en los
@@ -247,7 +277,8 @@ Salieron de iteraciones concretas y **conviene respetarlas al rediseñar cada p�
 
 **Backend**:
 
-- [ ] **Publicar la API** en el VPS y apuntarle el frontend (`deploy/README.md`).
+- [ ] **Cargar los secrets del VPS** (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`) en
+  el repo, para que el último paso del deploy deje de ser manual.
 - [ ] **Foro fase 2 (resto)**: editar y borrar temas y respuestas propios,
   moderación.
 - [ ] **Perfiles**: avatar propio (hoy hay uno por defecto), edición de datos.

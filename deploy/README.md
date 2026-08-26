@@ -42,10 +42,19 @@ estado seguro: se puede pushear sin romper la demo.
 3. **SSH al VPS**: `docker compose pull && docker compose up -d` en
    `/srv/infrastructure/manarem`.
 
-El paso 3 se saltea solo si faltan los secrets, así el build no queda en rojo
-por eso. Para que el deploy sea automático hacen falta tres secrets en el repo
-(*Settings → Secrets and variables → Actions*), los mismos que ya usa el
-portafolio: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`.
+**El paso 3 hoy se saltea**: el repo todavía no tiene los secrets, así que
+Actions construye y publica la imagen sola, pero el `pull` en el servidor hay
+que hacerlo a mano:
+
+```bash
+ssh servidor 'cd /srv/infrastructure/manarem && docker compose pull && docker compose up -d'
+```
+
+Para que sea automático, cargar tres secrets en *Settings → Secrets and
+variables → Actions* del repo — los mismos valores que ya usa el portafolio:
+`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. El paso está guardado con
+`if: env.VPS_HOST != ''`, así que se activa solo cuando aparecen y mientras
+tanto no deja el build en rojo.
 
 ---
 
@@ -98,11 +107,51 @@ curl -s https://manarem-api.augustofc.com/salud/ip
 curl -s https://manarem.vercel.app/api/salud     # a traves del proxy de Vercel
 ```
 
-`/salud/ip` importa: el campo `ip` tiene que ser **la IP del visitante**, no la
-de Cloudflare ni la de Traefik. Si no lo es, `MANAREM_PROXY_SALTOS` está mal y
-el límite por IP se convierte en un límite compartido que echa a todos juntos.
-ProxyFix toma el valor N-ésimo desde la derecha de `X-Forwarded-For`, y acá la
-cadena es cliente → Cloudflare → Traefik, o sea **2**.
+`/salud/ip` es el chequeo que importa: el campo `ip` tiene que ser **la IP del
+visitante**, no la de Cloudflare ni la de Traefik. Si no lo es, el límite por IP
+se vuelve uno solo compartido y el primer visitante que publique diez temas deja
+afuera a todos los demás.
+
+### Cómo se determina esa IP (y por qué no es obvio)
+
+`X-Forwarded-For` **no sirve acá**. Traefik lo reescribe con la dirección real
+de su interlocutor cuando ese interlocutor no está en sus `trustedIPs`, y
+Cloudflare no lo está: la cadena original se pierde y sólo queda la IP del edge.
+Lo que sí llega intacto es `CF-Connecting-IP`, que pone Cloudflare y Traefik
+pasa sin tocar.
+
+Creerle a esa cabecera sin más sería peor que no leerla: quien pueda mandarla se
+elige su clave de rate limit y estrena un cupo entero en cada pedido. Por eso se
+piden **dos condiciones**, las dos configurables:
+
+| Variable | Qué exige | Valor en este VPS |
+|---|---|---|
+| `MANAREM_PROXIES_CONFIABLES` | que el pedido venga de la red interna de docker, o sea de Traefik | `172.18.0.0/16` |
+| `MANAREM_REDES_EDGE` | que quien le habló a Traefik sea un edge de Cloudflare | los rangos de `cloudflare.com/ips-v4` y `/ips-v6` |
+
+La segunda es la que cierra el agujero de verdad. El puerto 443 del VPS está
+abierto a internet, así que se puede llegar a Traefik salteando Cloudflare: ese
+pedido igual sale de la red de docker y pasaría el primer filtro. Lo que lo
+delata es el peer — por Cloudflare es una IP del edge, en el bypass es la del
+atacante. Sin `MANAREM_REDES_EDGE` el bypass estaba **verificado como
+explotable**.
+
+Si la lista de rangos queda vieja, el efecto es que esos pedidos caen al cupo
+compartido, no que se rompa nada. Conviene refrescarla de vez en cuando.
+
+El detalle completo de la cadena se ve con el token:
+
+```bash
+ssh servidor 'cd /srv/infrastructure/manarem && curl -s -H "X-Diag-Token: $(cat .diag-token)" https://manarem-api.augustofc.com/salud/ip'
+```
+
+### Lo que sigue abierto
+
+El 443 del VPS acepta conexiones de cualquiera, no sólo de Cloudflare. La API
+degrada bien (ignora la cabecera y manda esos pedidos al cupo compartido), pero
+si alguna vez se quiere cerrar del todo, la forma es limitar 80/443 a los rangos
+de Cloudflare en el firewall. **Eso afecta a todos los servicios del VPS**, no
+sólo a este, así que es una decisión aparte.
 
 Diagnóstico rápido:
 
@@ -132,6 +181,8 @@ simulados sin tocar código, y `?mock=0` lo desactiva.
 | Sesiones | vencen a los 7 días, 5 activas por usuario |
 | Hash de contraseña | pbkdf2 en vez del scrypt por defecto de Werkzeug, que reserva **32 MB de RAM por hash** |
 | Contenedor | `no-new-privileges`, corre como `nobody`, sin puertos al host |
+| IP del visitante | doble chequeo: red del proxy + edge de Cloudflare (ver arriba) |
+| `/salud/ip` | sólo devuelve la IP atribuida; el detalle va con `MANAREM_DIAG_TOKEN` |
 | Consultas | siempre parametrizadas; índices en las claves foráneas |
 | Cabeceras | `nosniff`, `Referrer-Policy`, `no-store`; el frontend suma `X-Frame-Options` y `Permissions-Policy` |
 
@@ -148,9 +199,9 @@ Todo se ajusta por variables de entorno: ver `.env.example`.
   workers. Por eso son 2. Un límite compartido de verdad necesitaría Redis —
   que está corriendo en el VPS, así que es una mejora barata si alguna vez hace
   falta.
-- **`X-Forwarded-For` se puede falsear** si alguien llega al backend salteando
-  el proxy. Acá no aplica porque el contenedor no publica puertos, pero es la
-  razón de fondo para que siga siendo así.
+- **El 443 del VPS es público**, así que se puede hablar con Traefik sin pasar
+  por Cloudflare. La API lo detecta y degrada al cupo compartido; cerrarlo del
+  todo es una decisión de infraestructura que afecta a todos los servicios.
 - **No hay verificación de email ni recuperación de contraseña**: haría falta un
   servidor de correo.
 - **No hay CSP en el frontend**: las páginas usan `<script>` y estilos inline, y
