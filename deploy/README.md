@@ -1,233 +1,178 @@
-# Poner Manarem en produccion
+# Despliegue de Manarem
 
-Frontend en Vercel (estatico) + API Flask en el VPS de Oracle.
+Frontend estático en Vercel + API Flask en el VPS, como un contenedor detrás de
+Traefik, siguiendo el mismo flujo que el portafolio y el backend de la UTN.
+
+```
+navegador ──► manarem.vercel.app          (estático, Vercel)
+                  │  /api/*  (rewrite de vercel.json)
+                  ▼
+              Cloudflare ──► Traefik ──► manarem-api ──► postgres
+                                         (contenedor)    (contenedor)
+```
 
 ---
 
-## Lo primero: en Vercel NO hay que configurar ninguna variable de entorno
+## En Vercel no hay ninguna variable de entorno que configurar
 
 El frontend es HTML, CSS y JS servidos tal cual, **sin build step**. Vercel solo
-inyecta variables de entorno durante un build, y aca no hay build: nada de lo
-que se ponga en *Settings → Environment Variables* llega al navegador.
+inyecta variables durante un build, y acá no hay build: nada de lo que se ponga
+en *Settings → Environment Variables* llega al navegador.
 
-La configuracion del frontend vive en **dos archivos del repo**, y se aplica
-haciendo push (Vercel redeploya solo):
+La configuración vive en dos archivos del repo y se aplica con un push:
 
-| Archivo | Que se toca |
+| Archivo | Qué se toca |
 |---|---|
-| `frontend/static/js/api.js` | `CONFIG.apiBase` — a que API le pega el sitio |
-| `frontend/vercel.json` | el destino real del proxy `/api/:ruta*` |
+| `frontend/static/js/api.js` | `CONFIG.apiBase` — a qué API le pega el sitio |
+| `frontend/vercel.json` | el destino del proxy `/api/:ruta*` |
 
-Mientras `apiBase` este vacio, el sitio funciona con los datos simulados de
-`mock-data.js`. Es el estado seguro: se puede pushear sin romper la demo.
+Con `apiBase` vacío el sitio cae a los datos simulados de `mock-data.js`. Es el
+estado seguro: se puede pushear sin romper la demo.
 
 ---
 
-## Paso 1 — Elegir como se expone la API
+## El pipeline
 
-El sitio en Vercel se sirve por **https**. Un navegador en una pagina https no
-puede pedirle nada a un `http://`: lo bloquea como contenido mixto. Asi que la
-API necesita https si o si.
+`.github/workflows/deploy.yml`, en cada push a `master` que toque la API:
 
-### Opcion A — Cloudflare Tunnel (la recomendada)
+1. **Build ARM64 con QEMU.** El VPS es aarch64 y los runners de GitHub son
+   amd64; sin QEMU la imagen sale para la arquitectura equivocada y el `pull`
+   falla en el servidor.
+2. **Push a `ghcr.io/anatsu1/manarem-api`**, con tag `latest` y con el SHA.
+3. **SSH al VPS**: `docker compose pull && docker compose up -d` en
+   `/srv/infrastructure/manarem`.
 
-Sin abrir un solo puerto en el VPS, con certificado incluido y sin publicar la
-IP del servidor. Es lo que mejor encaja con "que no sea una carga innecesaria":
-lo que no esta expuesto no se puede inundar.
+El paso 3 se saltea solo si faltan los secrets, así el build no queda en rojo
+por eso. Para que el deploy sea automático hacen falta tres secrets en el repo
+(*Settings → Secrets and variables → Actions*), los mismos que ya usa el
+portafolio: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`.
 
-```bash
-cloudflared tunnel login
-cloudflared tunnel create manarem-api
-cloudflared tunnel route dns manarem-api api.tu-dominio.com
-```
+---
 
-`/etc/cloudflared/config.yml`:
+## Lo que hay en el servidor
+
+`/srv/infrastructure/manarem/` con tres archivos:
+
+- `docker-compose.yml` — el servicio y las labels de Traefik.
+- `.env` — configuración y credenciales (modo 600, fuera de git).
+- `.pgpass-manarem` — la contraseña de Postgres, generada en el propio servidor.
+
+La ruta la publica Traefik, que ya tiene un certificado wildcard para
+`*.augustofc.com` por DNS challenge de Cloudflare: el subdominio nuevo toma
+HTTPS solo, sin emitir nada aparte.
 
 ```yaml
-tunnel: manarem-api
-credentials-file: /root/.cloudflared/<id-del-tunnel>.json
-ingress:
-  - hostname: api.tu-dominio.com
-    service: http://127.0.0.1:5000
-  - service: http_status:404
+- "traefik.http.routers.manarem-api.rule=Host(`manarem-api.augustofc.com`)"
+- "traefik.http.routers.manarem-api.entrypoints=websecure"
+- "traefik.http.services.manarem-api.loadbalancer.server.port=5000"
 ```
+
+**No se publica ningún puerto al host.** El contenedor solo es alcanzable por la
+red interna `server-ubuntu-network`, y el único que le habla es Traefik.
+
+### La base
+
+Un rol y una base propios en el Postgres que ya corre en el VPS, igual que
+`utn_project` y `n8n`. La conexión va por la red de docker
+(`postgres:5432`), nunca por internet.
+
+El pool es de 3 conexiones por worker y hay 2 workers: 6 conexiones sobre las
+100 que tiene el motor. Vale tenerlo en cuenta al sumar servicios.
+
+Si alguna vez hay que recrear la base:
 
 ```bash
-sudo cloudflared service install
-sudo systemctl enable --now cloudflared
+docker exec postgres psql -U admin -d postgres -c "CREATE USER manarem WITH PASSWORD '<clave>'"
+docker exec postgres psql -U admin -d postgres -c "CREATE DATABASE manarem OWNER manarem"
 ```
 
-### Opcion B — nginx o Caddy con dominio propio
-
-Ya hay dos plantillas listas: `deploy/nginx-manarem.conf` y `deploy/Caddyfile`.
-Caddy saca el certificado solo; con nginx hace falta `certbot --nginx`.
-
-Con esta opcion **si** hay que abrir puertos, y en Oracle Cloud son **dos
-lugares distintos** — el que casi siempre se olvida es el segundo:
-
-1. Consola de OCI → la VNIC de la instancia → *Security List* / NSG: ingress
-   0.0.0.0/0 en 80 y 443.
-2. Dentro de la maquina, las imagenes de Oracle traen un iptables cerrado:
-
-```bash
-sudo firewall-cmd --permanent --add-service=http --add-service=https && sudo firewall-cmd --reload
-# o, en las imagenes de Ubuntu:
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
-sudo netfilter-persistent save
-```
-
-**El puerto 5000 no se abre nunca.** gunicorn escucha en `127.0.0.1` y solo el
-proxy le habla.
-
-### Opcion C — pegarle directo a la IP del VPS
-
-No sirve: sin dominio no hay certificado, sin certificado es http, y el
-navegador lo bloquea. Ademas publica la IP del servidor.
+Las tablas se crean solas al arrancar el contenedor.
 
 ---
 
-## Paso 2 — La base de datos
-
-### SQLite (lo que corre por defecto)
-
-No hay nada que instalar. Para un sitio de prueba con los cupos puestos es la
-opcion mas liviana: un archivo, cero procesos, cero memoria residente.
+## Verificar
 
 ```bash
-sudo mkdir -p /var/lib/manarem && sudo chown manarem:manarem /var/lib/manarem
+curl -s https://manarem-api.augustofc.com/salud
+curl -s https://manarem-api.augustofc.com/salud/ip
+curl -s https://manarem.vercel.app/api/salud     # a traves del proxy de Vercel
 ```
 
-y en el archivo de entorno: `MANAREM_DB=/var/lib/manarem/manarem.db`
+`/salud/ip` importa: el campo `ip` tiene que ser **la IP del visitante**, no la
+de Cloudflare ni la de Traefik. Si no lo es, `MANAREM_PROXY_SALTOS` está mal y
+el límite por IP se convierte en un límite compartido que echa a todos juntos.
+ProxyFix toma el valor N-ésimo desde la derecha de `X-Forwarded-For`, y acá la
+cadena es cliente → Cloudflare → Traefik, o sea **2**.
 
-### PostgreSQL (si se quiere usar el que ya corre en el VPS)
+Diagnóstico rápido:
 
 ```bash
-sudo -u postgres psql <<'SQL'
-CREATE USER manarem WITH PASSWORD 'una-clave-larga-y-random';
-CREATE DATABASE manarem OWNER manarem;
-SQL
+ssh servidor 'cd /srv/infrastructure/manarem && docker compose logs --tail 50'
+ssh servidor 'docker ps --filter name=manarem-api'
 ```
 
-En el archivo de entorno:
-
-```
-MANAREM_DATABASE_URL=postgresql://manarem:una-clave-larga-y-random@127.0.0.1:5432/manarem
-MANAREM_MAX_CONEXIONES=5
-```
-
-y se instalan las dependencias con `pip install -r requirements-postgres.txt`.
-
-`MANAREM_MAX_CONEXIONES` es el tamaño del pool **por worker de gunicorn**: con
-2 workers y 5 conexiones son 10 conexiones al motor. Conviene tenerlo en cuenta
-si el Postgres del VPS lo comparten otros servicios — el default de PostgreSQL
-es 100 en total.
-
-Las tablas se crean solas al arrancar, en los dos motores.
+Si algo se cae, `?mock=1` en cualquier página del sitio vuelve a los datos
+simulados sin tocar código, y `?mock=0` lo desactiva.
 
 ---
 
-## Paso 3 — El servicio en el VPS
+## Qué trae puesto para no cargar el servidor
 
-```bash
-sudo useradd --system --home /opt/manarem --shell /usr/sbin/nologin manarem
-sudo git clone https://github.com/Anatsu1/manarem.git /opt/manarem
-cd /opt/manarem
-sudo python3 -m venv venv
-sudo ./venv/bin/pip install -r requirements.txt          # o requirements-postgres.txt
-sudo chown -R manarem:manarem /opt/manarem
-
-sudo mkdir -p /etc/manarem
-sudo cp .env.example /etc/manarem/api.env
-sudo nano /etc/manarem/api.env                            # ajustar
-sudo chmod 640 /etc/manarem/api.env
-sudo chown root:manarem /etc/manarem/api.env
-
-sudo cp deploy/manarem-api.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now manarem-api
-sudo systemctl status manarem-api
-curl -s localhost:5000/salud
-```
-
-En `/etc/manarem/api.env`, lo que no puede faltar:
-
-```
-MANAREM_CORS_ORIGINS=https://manarem.vercel.app
-MANAREM_TRUST_PROXY=1
-MANAREM_DEBUG=0
-```
-
-`MANAREM_TRUST_PROXY=1` es **obligatorio** cuando hay un proxy adelante: sin
-eso, la API ve la IP del proxy en todos los pedidos y el rate limit por IP se
-convierte en un limite compartido que echa a todo el mundo junto.
-
----
-
-## Paso 4 — Conectar el frontend
-
-Con la API respondiendo en `https://api.tu-dominio.com/salud`:
-
-**Con el proxy de Vercel (recomendado).** El pedido sale al mismo origen, asi
-que no hay CORS ni preflight, y la URL del VPS no aparece en el navegador.
-
-1. En `frontend/vercel.json`, cambiar el destino:
-   ```json
-   { "source": "/api/:ruta*", "destination": "https://api.tu-dominio.com/:ruta*" }
-   ```
-2. En `frontend/static/js/api.js`: `apiBase: '/api'`
-3. Commit y push. Vercel redeploya solo.
-
-**Sin proxy, directo al backend.** `apiBase: 'https://api.tu-dominio.com'` y el
-dominio de Vercel en `MANAREM_CORS_ORIGINS`.
-
----
-
-## Paso 5 — Verificar
-
-```bash
-curl -s https://api.tu-dominio.com/salud
-curl -s https://manarem.vercel.app/api/salud        # si se uso el proxy
-```
-
-Y en el sitio: crear una cuenta, iniciar sesion, publicar un tema, responderlo,
-dejar una opinion. El `/perfil` tiene que mostrar el nombre y los temas propios.
-
-Si algo no responde, `?mock=1` en cualquier pagina vuelve a los datos simulados
-sin tocar codigo, y `?mock=0` lo desactiva.
-
----
-
-## Que trae puesto para no cargar el servidor
-
-| Que | Como |
+| Qué | Cómo |
 |---|---|
-| Cuerpo del pedido | 16 KB, mas arriba responde 413 |
-| Largo de cada campo | titulo 120, tema 4000, respuesta 2000, opinion 600 |
+| Cuerpo del pedido | 16 KB; más arriba responde 413 |
+| Largo de cada campo | título 120, tema 4000, respuesta 2000, opinión 600 |
 | Techo global por IP | 300 pedidos por minuto |
 | Altas de cuenta | 5 por hora por IP, contando solo las que se concretan |
 | Login | 10 intentos cada 5 minutos por IP |
 | Temas | 10 por hora por IP; respuestas 30 por hora |
 | Contacto | 5 por hora por IP |
 | Cupos del sitio | 200 cuentas, 500 temas, 200 respuestas por tema, 300 opiniones |
-| Listados | 50 temas por pagina, tope 100; opiniones tope 100 |
-| Sesiones | vencen a los 7 dias, 5 activas por usuario como maximo |
+| Listados | 50 temas por página, tope 100; opiniones tope 100 |
+| Sesiones | vencen a los 7 días, 5 activas por usuario |
 | Hash de contraseña | pbkdf2 en vez del scrypt por defecto de Werkzeug, que reserva **32 MB de RAM por hash** |
-| Consultas | siempre parametrizadas; indices en las claves foraneas |
+| Contenedor | `no-new-privileges`, corre como `nobody`, sin puertos al host |
+| Consultas | siempre parametrizadas; índices en las claves foráneas |
 | Cabeceras | `nosniff`, `Referrer-Policy`, `no-store`; el frontend suma `X-Frame-Options` y `Permissions-Policy` |
+
+Los rechazos **no gastan cupo**: un error de tipeo, una categoría mal escrita o
+un pedido sin token no le queman la cuota a quien comparta la salida a
+internet. El techo global sigue cubriendo al que solo inunda.
 
 Todo se ajusta por variables de entorno: ver `.env.example`.
 
-### Lo que queda afuera a proposito
+### Lo que queda afuera a propósito
 
 - **El rate limit vive en la memoria del proceso.** Con varios workers cada uno
-  lleva su cuenta, asi que el limite real es el configurado por la cantidad de
-  workers. Por eso el service arranca con 2. Un limite compartido de verdad
-  necesitaria Redis, que es justo el proceso extra que no queremos.
-- **`X-Forwarded-For` se puede falsear** si alguien le pega directo al backend
-  saltando el proxy. Es la razon de fondo para no exponer el 5000 y de que la
-  opcion A (tunnel, sin puertos abiertos) sea la recomendada.
-- **No hay verificacion de email ni recuperacion de contraseña**: haria falta un
+  lleva su cuenta, así que el límite real es el configurado por la cantidad de
+  workers. Por eso son 2. Un límite compartido de verdad necesitaría Redis —
+  que está corriendo en el VPS, así que es una mejora barata si alguna vez hace
+  falta.
+- **`X-Forwarded-For` se puede falsear** si alguien llega al backend salteando
+  el proxy. Acá no aplica porque el contenedor no publica puertos, pero es la
+  razón de fondo para que siga siendo así.
+- **No hay verificación de email ni recuperación de contraseña**: haría falta un
   servidor de correo.
-- **No hay CSP en el frontend**: las paginas usan `<script>` y estilos inline, y
-  una CSP util pediria sacarlos primero.
+- **No hay CSP en el frontend**: las páginas usan `<script>` y estilos inline, y
+  una CSP útil pediría sacarlos primero.
+
+---
+
+## Apéndice: correrlo sin Docker
+
+Para otro servidor sin esta infraestructura, en `deploy/` están
+`manarem-api.service` (systemd), `nginx-manarem.conf` y `Caddyfile`. El resumen:
+crear un usuario de sistema, un venv, `pip install -r requirements-postgres.txt`
+(o `requirements.txt` para quedarse en SQLite), copiar `.env.example` a
+`/etc/manarem/api.env`, y `systemctl enable --now manarem-api`. gunicorn escucha
+en `127.0.0.1:5000` y el puerto **no** se abre nunca: solo le habla el proxy.
+
+En Oracle Cloud, además de la *Security List* de la consola hay que abrir el
+iptables de la propia imagen — es el paso que casi siempre se olvida:
+
+```bash
+sudo firewall-cmd --permanent --add-service=http --add-service=https && sudo firewall-cmd --reload
+# en imagenes de Ubuntu:
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```

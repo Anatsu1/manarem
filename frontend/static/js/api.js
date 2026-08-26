@@ -16,8 +16,8 @@ const CONFIG = {
     //   'https://api.tu-dominio.com' -> le pega directo al backend. Requiere
     //          que el dominio de Vercel este en MANAREM_CORS_ORIGINS del VPS.
     //
-    // Para salir a produccion: ver deploy/README.md, paso "Conectar el frontend".
-    apiBase: '',
+    // Ver deploy/README.md.
+    apiBase: '/api',
 
     // API cuando el sitio se sirve desde localhost (dev_server.py + app.py).
     apiBaseDev: 'http://localhost:5000',

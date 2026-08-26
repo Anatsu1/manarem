@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:ruta*",
-      "destination": "https://api.TU-DOMINIO/:ruta*"
+      "destination": "https://manarem-api.augustofc.com/:ruta*"
     },
     {
       "source": "/recomend",

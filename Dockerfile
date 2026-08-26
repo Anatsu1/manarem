@@ -1,8 +1,11 @@
 FROM python:3.13-slim-bookworm
 
+# HOME apunta a /data porque el usuario nobody tiene /nonexistent y el control
+# server de gunicorn 26 falla al escribir su socket ahi en cada arranque.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/data
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends dumb-init \

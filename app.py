@@ -65,6 +65,11 @@ CONFIA_PROXY = env_bool('MANAREM_TRUST_PROXY', False)
 # la API termina viendo la IP del proxy y el limite por IP se vuelve global.
 # Detras de Cloudflare + Traefik son 2.
 PROXY_SALTOS = max(1, env_entero('MANAREM_PROXY_SALTOS', 1))
+# Cabecera de la que sacar la IP real cuando X-Forwarded-For no sirve. Traefik
+# reescribe XFF si el que le habla no esta en sus trustedIPs, y entonces la
+# cadena se pierde entera; detras de Cloudflare, CF-Connecting-IP si llega.
+# Vacio = usar solo X-Forwarded-For via ProxyFix.
+IP_HEADER = env_texto('MANAREM_IP_HEADER', '')
 MAX_BODY = env_entero('MANAREM_MAX_BODY', 16 * 1024)
 SESION_DIAS = env_entero('MANAREM_SESION_DIAS', 7)
 SESIONES_POR_USUARIO = env_entero('MANAREM_SESIONES_POR_USUARIO', 5)
@@ -170,6 +175,10 @@ limitador = Limitador()
 
 
 def ip_cliente():
+    if IP_HEADER:
+        valor = (request.headers.get(IP_HEADER) or '').split(',')[0].strip()
+        if valor:
+            return valor
     return request.remote_addr or 'desconocida'
 
 
@@ -378,8 +387,12 @@ def salud_ip():
     """
     return jsonify({
         'ip': ip_cliente(),
+        'origen': IP_HEADER or 'X-Forwarded-For',
         'saltos_declarados': PROXY_SALTOS if CONFIA_PROXY else 0,
+        'remote_addr': request.remote_addr,
         'x_forwarded_for': request.headers.get('X-Forwarded-For'),
+        'cf_connecting_ip': request.headers.get('CF-Connecting-IP'),
+        'x_real_ip': request.headers.get('X-Real-Ip'),
     }), 200
 
 
