@@ -10,13 +10,11 @@ Plataforma web para descubrir y recomendar animes, mangas y música relacionada.
 
 ### Backend
 - **Python 3** + **Flask** (API REST)
-- **PostgreSQL** o **SQLite**, misma API — se elige con una variable de entorno
+- **PostgreSQL** — en producción; SQLite queda como modo local sin instalar nada
 - **Werkzeug** (hash de contraseñas)
-- **gunicorn** detrás de un proxy inverso en producción
+- **gunicorn** en un contenedor, detrás de Traefik
 
 ## Inicio rápido
-
-### Todo junto
 
 ```bash
 git clone <repo>
@@ -24,31 +22,34 @@ cd manarem_anime
 
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-postgres.txt
 
-python app.py          # API en http://localhost:5000
-python3 dev_server.py  # sitio en http://localhost:8000
+createdb manarem
+MANAREM_DATABASE_URL=postgresql:///manarem python app.py   # API en :5000
+python3 dev_server.py                                      # sitio en :8000
 ```
 
 `dev_server.py` replica las URLs limpias de Vercel (`/recomend`, `/foro`, etc.).
-Servido desde `localhost`, el frontend le pega solo a la API local.
+Servido desde `localhost`, el frontend le pega a la API local.
+
+### Sin instalar PostgreSQL
+
+Sin `MANAREM_DATABASE_URL` la API corre sobre **SQLite**, que viene con Python:
+
+```bash
+pip install -r requirements.txt
+python app.py
+```
+
+Es el mismo esquema y el mismo contrato — las respuestas se verifican idénticas
+motor contra motor. Sirve para clonar y arrancar sin preparar nada; producción
+corre sobre Postgres.
 
 ### Sin backend
 
 Cualquier página acepta `?mock=1`: el sitio pasa a los datos simulados de
 `frontend/static/js/mock-data.js` y sigue navegable entero. `?mock=0` lo apaga.
-Es lo mismo que usa la demo de Vercel mientras la API no esté publicada.
-
-### Con PostgreSQL en vez de SQLite
-
-```bash
-pip install -r requirements-postgres.txt
-createdb manarem
-MANAREM_DATABASE_URL=postgresql:///manarem python app.py
-```
-
-Las tablas se crean solas en los dos motores. Sin esa variable corre sobre
-SQLite y no hay nada que instalar.
+Sirve para mostrar el sitio aunque la API esté caída.
 
 ## Estructura
 
