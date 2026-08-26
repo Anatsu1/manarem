@@ -42,19 +42,16 @@ estado seguro: se puede pushear sin romper la demo.
 3. **SSH al VPS**: `docker compose pull && docker compose up -d` en
    `/srv/infrastructure/manarem`.
 
-**El paso 3 hoy se saltea**: el repo todavía no tiene los secrets, así que
-Actions construye y publica la imagen sola, pero el `pull` en el servidor hay
-que hacerlo a mano:
+Los tres pasos corren solos. El deploy usa `VPS_HOST`, `VPS_USER` y
+`VPS_SSH_KEY`, cargados en *Settings → Secrets and variables → Actions*; el paso
+está guardado con `if: env.VPS_HOST != ''`, así que si esos secrets faltaran se
+saltearía en vez de dejar el build en rojo.
+
+Para desplegar a mano, si alguna vez hace falta:
 
 ```bash
 ssh servidor 'cd /srv/infrastructure/manarem && docker compose pull && docker compose up -d'
 ```
-
-Para que sea automático, cargar tres secrets en *Settings → Secrets and
-variables → Actions* del repo — los mismos valores que ya usa el portafolio:
-`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`. El paso está guardado con
-`if: env.VPS_HOST != ''`, así que se activa solo cuando aparecen y mientras
-tanto no deja el build en rojo.
 
 ---
 

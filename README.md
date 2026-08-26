@@ -162,8 +162,9 @@ navegador ──► manarem.vercel.app          (estático, Vercel)
               Cloudflare ──► Traefik ──► manarem-api ──► postgres
 ```
 
-Cada push a `master` que toque la API dispara un build ARM64 en Actions que
-publica la imagen en `ghcr.io/anatsu1/manarem-api`.
+Cada push a `master` que toque la API dispara un build ARM64 en Actions, que
+publica la imagen en `ghcr.io/anatsu1/manarem-api` y la despliega sola en el
+VPS. No hay paso manual.
 
 **Vercel no necesita ninguna variable de entorno**: el sitio es estático y sin
 build step, así que nada de lo que se configure ahí llega al navegador. A qué
@@ -278,8 +279,6 @@ Salieron de iteraciones concretas y **conviene respetarlas al rediseñar cada p�
 
 **Backend**:
 
-- [ ] **Cargar los secrets del VPS** (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`) en
-  el repo, para que el último paso del deploy deje de ser manual.
 - [ ] **Foro fase 2 (resto)**: editar y borrar temas y respuestas propios,
   moderación.
 - [ ] **Perfiles**: avatar propio (hoy hay uno por defecto), edición de datos.
