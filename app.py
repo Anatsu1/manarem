@@ -7,6 +7,7 @@ Es una API de un sitio de prueba, asi que viene con cupos y limites de uso
 deliberados: nadie deberia poder llenar el disco del VPS desde el formulario
 del foro. Todo se configura por variables de entorno (ver .env.example).
 """
+import ipaddress
 import os
 import re
 import threading
@@ -70,6 +71,26 @@ PROXY_SALTOS = max(1, env_entero('MANAREM_PROXY_SALTOS', 1))
 # cadena se pierde entera; detras de Cloudflare, CF-Connecting-IP si llega.
 # Vacio = usar solo X-Forwarded-For via ProxyFix.
 IP_HEADER = env_texto('MANAREM_IP_HEADER', '')
+
+# Redes desde las que se acepta IP_HEADER. Sin esto, cualquiera que llegue a la
+# API manda la cabecera que quiere y se elige su propia clave de rate limit:
+# un bucket nuevo por pedido deja todos los limites en nada. Vacio = no confiar
+# en la cabecera nunca.
+def _parsear_redes(crudo):
+    redes = []
+    for parte in crudo:
+        try:
+            redes.append(ipaddress.ip_network(parte, strict=False))
+        except ValueError:
+            pass
+    return redes
+
+
+PROXIES_CONFIABLES = _parsear_redes(env_lista('MANAREM_PROXIES_CONFIABLES', []))
+
+# Token opcional para ver el detalle de /salud/ip. Sin el, ese endpoint solo
+# devuelve la IP que la API le atribuye a quien pregunta.
+DIAG_TOKEN = env_texto('MANAREM_DIAG_TOKEN', '')
 MAX_BODY = env_entero('MANAREM_MAX_BODY', 16 * 1024)
 SESION_DIAS = env_entero('MANAREM_SESION_DIAS', 7)
 SESIONES_POR_USUARIO = env_entero('MANAREM_SESIONES_POR_USUARIO', 5)
@@ -174,8 +195,18 @@ class Limitador:
 limitador = Limitador()
 
 
+def viene_de_proxy_confiable():
+    if not PROXIES_CONFIABLES:
+        return False
+    try:
+        origen = ipaddress.ip_address(request.remote_addr)
+    except (TypeError, ValueError):
+        return False
+    return any(origen in red for red in PROXIES_CONFIABLES)
+
+
 def ip_cliente():
-    if IP_HEADER:
+    if IP_HEADER and viene_de_proxy_confiable():
         valor = (request.headers.get(IP_HEADER) or '').split(',')[0].strip()
         if valor:
             return valor
@@ -380,20 +411,28 @@ def salud():
 
 @app.route('/salud/ip', methods=['GET'])
 def salud_ip():
-    """Para verificar que PROXY_SALTOS quedo bien configurado.
+    """Para verificar de que IP cree la API que viene cada pedido.
 
-    Si `ip` no es la IP real del visitante, la cadena de proxies es mas larga o
-    mas corta de lo declarado y el rate limit por IP no esta funcionando.
+    Si `ip` no es la IP real del visitante, el rate limit por IP no esta
+    funcionando: todos comparten el mismo cupo. Con X-Diag-Token se ve el
+    detalle de la cadena de proxies.
     """
-    return jsonify({
-        'ip': ip_cliente(),
-        'origen': IP_HEADER or 'X-Forwarded-For',
-        'saltos_declarados': PROXY_SALTOS if CONFIA_PROXY else 0,
-        'remote_addr': request.remote_addr,
-        'x_forwarded_for': request.headers.get('X-Forwarded-For'),
-        'cf_connecting_ip': request.headers.get('CF-Connecting-IP'),
-        'x_real_ip': request.headers.get('X-Real-Ip'),
-    }), 200
+    respuesta = {'ip': ip_cliente()}
+
+    # El detalle describe la topologia interna (IP del proxy, que cabeceras
+    # llegan), asi que va solo con token.
+    if DIAG_TOKEN and request.headers.get('X-Diag-Token') == DIAG_TOKEN:
+        respuesta.update({
+            'origen': IP_HEADER or 'X-Forwarded-For',
+            'proxy_confiable': viene_de_proxy_confiable(),
+            'saltos_declarados': PROXY_SALTOS if CONFIA_PROXY else 0,
+            'remote_addr': request.remote_addr,
+            'x_forwarded_for': request.headers.get('X-Forwarded-For'),
+            'cf_connecting_ip': request.headers.get('CF-Connecting-IP'),
+            'x_real_ip': request.headers.get('X-Real-Ip'),
+        })
+
+    return jsonify(respuesta), 200
 
 
 @app.route('/registro', methods=['POST'])
