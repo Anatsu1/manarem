@@ -111,50 +111,45 @@ afuera a todos los demás.
 
 ### Cómo se determina esa IP (y por qué no es obvio)
 
-`X-Forwarded-For` **no sirve acá**. Traefik lo reescribe con la dirección real
-de su interlocutor cuando ese interlocutor no está en sus `trustedIPs`, y
-Cloudflare no lo está: la cadena original se pierde y sólo queda la IP del edge.
-Lo que sí llega intacto es `CF-Connecting-IP`, que pone Cloudflare y Traefik
-pasa sin tocar.
+Desde el 2026-08-26 los rangos de Cloudflare están en los `trustedIPs` de
+Traefik, así que la cadena de `X-Forwarded-For` llega entera: por Cloudflare
+queda `<visitante>, <edge>`, y `MANAREM_PROXY_SALTOS=2` hace que ProxyFix tome
+el anteúltimo valor, que es el visitante. Ése es hoy el camino normal.
 
-Creerle a esa cabecera sin más sería peor que no leerla: quien pueda mandarla se
-elige su clave de rate limit y estrena un cupo entero en cada pedido. Por eso se
-piden **dos condiciones**, las dos configurables:
+Antes de eso Traefik **pisaba** el `X-Forwarded-For` con la dirección de su
+interlocutor, la cadena original se perdía y sólo quedaba la IP del edge. La
+que llegaba intacta era `CF-Connecting-IP`, y la app la leía con un doble
+chequeo. Ese camino sigue en el código y sigue haciendo falta, porque es el que
+tapa el bypass:
 
 | Variable | Qué exige | Valor en este VPS |
 |---|---|---|
 | `MANAREM_PROXIES_CONFIABLES` | que el pedido venga de la red interna de docker, o sea de Traefik | `172.18.0.0/16` |
 | `MANAREM_REDES_EDGE` | que quien le habló a Traefik sea un edge de Cloudflare | los rangos de `cloudflare.com/ips-v4` y `/ips-v6` |
 
-La segunda es la que cierra el agujero de verdad. El puerto 443 del VPS está
-abierto a internet, así que se puede llegar a Traefik salteando Cloudflare: ese
-pedido igual sale de la red de docker y pasaría el primer filtro. Lo que lo
-delata es el peer — por Cloudflare es una IP del edge, en el bypass es la del
-atacante. Sin `MANAREM_REDES_EDGE` el bypass estaba **verificado como
-explotable**.
+El puerto 443 del VPS está abierto a internet, así que se puede llegar a Traefik
+salteando Cloudflare. En ese caso Traefik no confía en el interlocutor y vuelve
+a pisar el `X-Forwarded-For`, que queda con un solo valor: ProxyFix no lo usa,
+`remote_addr` sigue siendo la IP interna de Traefik, y el chequeo de edge
+descarta cualquier `CF-Connecting-IP` forjado. El pedido cae al cupo compartido
+en vez de estrenar uno propio. **Verificado explotable antes de tener el chequeo
+de edge, y verificado cerrado después.**
 
 Si la lista de rangos queda vieja, el efecto es que esos pedidos caen al cupo
-compartido, no que se rompa nada. Conviene refrescarla de vez en cuando.
+compartido, no que se rompa nada. Conviene refrescarla de vez en cuando — en
+Traefik y en el `.env`, que llevan la misma lista.
 
 El detalle completo de la cadena se ve con el token:
 
 ```bash
-ssh servidor 'cd /srv/infrastructure/manarem && curl -s -H "X-Diag-Token: $(cat .diag-token)" https://manarem-api.augustofc.com/salud/ip'
+curl -s -H "X-Diag-Token: $(ssh servidor 'grep MANAREM_DIAG_TOKEN /srv/infrastructure/manarem/.env | cut -d= -f2-')" \
+  https://manarem-api.augustofc.com/salud/ip
 ```
 
-### Pendiente: `trustedIPs` de Cloudflare en Traefik
+### Aplicado: `trustedIPs` de Cloudflare en Traefik
 
-Analizado el 2026-08-26, **sin aplicar todavía**. Es el paso que conviene dar
-primero, antes que cualquier cosa con el firewall.
-
-Hoy Traefik **pisa** `X-Forwarded-For` porque Cloudflare no está en sus
-`trustedIPs`: la cadena original se pierde y cada servicio ve la IP interna de
-Traefik en todos los pedidos. Manarem lo esquiva leyendo `CF-Connecting-IP` con
-doble chequeo, pero **`utn-api` tiene el mismo punto ciego** y no lo esquiva: si
-alguna vez limita por IP, hoy limita a todos juntos.
-
-El cambio, en `/srv/infrastructure/traefik/config/traefik.yml`, en **los dos**
-entrypoints:
+Hecho el 2026-08-26 en `/srv/infrastructure/traefik/config/traefik.yml`, en
+**los dos** entrypoints (commit `b1af874` de `server_infraestructure`):
 
 ```yaml
 entryPoints:
@@ -165,26 +160,40 @@ entryPoints:
         - "173.245.48.0/20"
         # ... los 22 rangos de cloudflare.com/ips-v4 y /ips-v6
     http:
-      redirections: { ... }        # lo que ya está
+      redirections: { ... }        # lo que ya estaba
   websecure:
     address: ":443"
     forwardedHeaders:
       trustedIPs: *cloudflare
-    http: { ... }                  # lo que ya está
+    http: { ... }                  # lo que ya estaba
 ```
 
-Efecto: Traefik preserva el `X-Forwarded-For` que manda Cloudflare y le agrega
-el edge, así que la IP real del visitante queda como anteúltimo valor; desde una
-conexión que no venga de Cloudflare, lo sobreescribe. Todos los servicios pasan
-a ver la IP real sin lista que mantener en el firewall.
+Antes de tocar la que estaba en uso, la config nueva se levantó en un
+contenedor `traefik:v3.7` descartable, con una copia de `acme.json` para que no
+pidiera certificados. Arrancó y se quedó corriendo, que es la prueba que
+importa: un error en la config estática lo hace salir al instante.
 
-- **No bloquea nada**, así que no hay riesgo de dejar a nadie afuera.
-- **Manarem no cambia**: su chequeo de edge mira el último valor del XFF, que
-  sigue siendo una IP de Cloudflare. Sigue funcionando igual, verificado en el
-  razonamiento pero **no probado**.
-- **El único impacto es reiniciar Traefik**: unos segundos de corte para los 7
-  servicios. Hacer copia del `traefik.yml` antes; un error de sintaxis deja a
-  Traefik sin arrancar y eso sí tira todo.
+Después del `docker restart traefik` responden los 7 servicios más el
+dashboard, con los mismos códigos que antes del cambio, y `traefik.log` no tiene
+un solo error. La copia del archivo viejo quedó en `~/traefik.yml.bak-20260826`
+del VPS.
+
+Lo que cambió, medido con `/salud/ip` y el token de diagnóstico:
+
+| | Antes | Ahora |
+|---|---|---|
+| `x_forwarded_for` | `172.69.11.130` (sólo el edge) | `45.173.193.206, 172.69.11.130` |
+| `remote_addr` | `172.18.0.2` (Traefik) | `45.173.193.206` (el visitante) |
+| Bypass del 443 con `CF-Connecting-IP` forjado | descartado | descartado igual |
+
+O sea: **todos** los servicios del VPS pasan a ver la IP real sin tener que
+leer `CF-Connecting-IP` ni mantener listas propias — incluido `utn-api`, que
+tenía el mismo punto ciego y no lo esquivaba. Para aprovecharlo, Express
+necesita `app.set('trust proxy', ...)`; sin eso ve la IP de Traefik como antes,
+pero ahora el dato le llega.
+
+Manarem no necesitó ningún cambio: sigue atribuyendo bien, sólo que ahora por
+ProxyFix en vez de por la cabecera de Cloudflare.
 
 ### Lo que sigue abierto
 
@@ -228,7 +237,7 @@ simulados sin tocar código, y `?mock=0` lo desactiva.
 | Sesiones | vencen a los 7 días, 5 activas por usuario |
 | Hash de contraseña | pbkdf2 en vez del scrypt por defecto de Werkzeug, que reserva **32 MB de RAM por hash** |
 | Contenedor | `no-new-privileges`, corre como `nobody`, sin puertos al host |
-| IP del visitante | doble chequeo: red del proxy + edge de Cloudflare (ver arriba) |
+| IP del visitante | Traefik confía en los rangos de Cloudflare y ProxyFix toma el anteúltimo salto; el doble chequeo tapa el bypass del 443 (ver arriba) |
 | `/salud/ip` | sólo devuelve la IP atribuida; el detalle va con `MANAREM_DIAG_TOKEN` |
 | Consultas | siempre parametrizadas; índices en las claves foráneas |
 | Cabeceras | `nosniff`, `Referrer-Policy`, `no-store`; el frontend suma `X-Frame-Options` y `Permissions-Policy` |

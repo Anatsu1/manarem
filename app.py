@@ -452,7 +452,15 @@ def salud_ip():
     # llegan), asi que va solo con token.
     if DIAG_TOKEN and request.headers.get('X-Diag-Token') == DIAG_TOKEN:
         respuesta.update({
-            'origen': IP_HEADER or 'X-Forwarded-For',
+            # De donde salio realmente el valor de `ip`, no que cabecera esta
+            # configurada: desde que Traefik confia en los rangos de Cloudflare,
+            # ProxyFix ya resuelve la IP real y la rama de la cabecera casi nunca
+            # se usa. Decir siempre 'CF-Connecting-IP' confundia el diagnostico.
+            'origen': (
+                IP_HEADER
+                if (IP_HEADER and viene_de_proxy_confiable() and viene_del_edge())
+                else 'remote_addr'
+            ),
             'proxy_confiable': viene_de_proxy_confiable(),
             'peer_del_proxy': peer_del_proxy(),
             'viene_del_edge': viene_del_edge(),
