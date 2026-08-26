@@ -142,13 +142,63 @@ El detalle completo de la cadena se ve con el token:
 ssh servidor 'cd /srv/infrastructure/manarem && curl -s -H "X-Diag-Token: $(cat .diag-token)" https://manarem-api.augustofc.com/salud/ip'
 ```
 
+### Pendiente: `trustedIPs` de Cloudflare en Traefik
+
+Analizado el 2026-08-26, **sin aplicar todavía**. Es el paso que conviene dar
+primero, antes que cualquier cosa con el firewall.
+
+Hoy Traefik **pisa** `X-Forwarded-For` porque Cloudflare no está en sus
+`trustedIPs`: la cadena original se pierde y cada servicio ve la IP interna de
+Traefik en todos los pedidos. Manarem lo esquiva leyendo `CF-Connecting-IP` con
+doble chequeo, pero **`utn-api` tiene el mismo punto ciego** y no lo esquiva: si
+alguna vez limita por IP, hoy limita a todos juntos.
+
+El cambio, en `/srv/infrastructure/traefik/config/traefik.yml`, en **los dos**
+entrypoints:
+
+```yaml
+entryPoints:
+  web:
+    address: ":80"
+    forwardedHeaders:
+      trustedIPs: &cloudflare
+        - "173.245.48.0/20"
+        # ... los 22 rangos de cloudflare.com/ips-v4 y /ips-v6
+    http:
+      redirections: { ... }        # lo que ya está
+  websecure:
+    address: ":443"
+    forwardedHeaders:
+      trustedIPs: *cloudflare
+    http: { ... }                  # lo que ya está
+```
+
+Efecto: Traefik preserva el `X-Forwarded-For` que manda Cloudflare y le agrega
+el edge, así que la IP real del visitante queda como anteúltimo valor; desde una
+conexión que no venga de Cloudflare, lo sobreescribe. Todos los servicios pasan
+a ver la IP real sin lista que mantener en el firewall.
+
+- **No bloquea nada**, así que no hay riesgo de dejar a nadie afuera.
+- **Manarem no cambia**: su chequeo de edge mira el último valor del XFF, que
+  sigue siendo una IP de Cloudflare. Sigue funcionando igual, verificado en el
+  razonamiento pero **no probado**.
+- **El único impacto es reiniciar Traefik**: unos segundos de corte para los 7
+  servicios. Hacer copia del `traefik.yml` antes; un error de sintaxis deja a
+  Traefik sin arrancar y eso sí tira todo.
+
 ### Lo que sigue abierto
 
 El 443 del VPS acepta conexiones de cualquiera, no sólo de Cloudflare. La API
 degrada bien (ignora la cabecera y manda esos pedidos al cupo compartido), pero
 si alguna vez se quiere cerrar del todo, la forma es limitar 80/443 a los rangos
-de Cloudflare en el firewall. **Eso afecta a todos los servicios del VPS**, no
-sólo a este, así que es una decisión aparte.
+de Cloudflare en el firewall. Análisis hecho: los 7 hostnames están en naranja y
+el certificado usa `dnsChallenge`, así que hoy no rompería nada — el costo es
+que perdés la nube gris para depurar, y que la lista de rangos hay que
+refrescarla o algunos visitantes empiezan a recibir connection refused.
+**Afecta a todos los servicios del VPS**, así que es una decisión aparte.
+
+La alternativa sin lista de IPs es **Authenticated Origin Pulls**: Traefik exige
+un certificado de cliente que sólo tiene Cloudflare, y el CA es estable.
 
 Diagnóstico rápido:
 
