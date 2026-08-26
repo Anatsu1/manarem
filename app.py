@@ -60,6 +60,11 @@ ORIGENES = env_lista('MANAREM_CORS_ORIGINS', [
 ])
 
 CONFIA_PROXY = env_bool('MANAREM_TRUST_PROXY', False)
+# Cuantos proxies hay adelante. Importa: ProxyFix toma el valor N-esimo desde la
+# derecha de X-Forwarded-For, asi que si el numero es menor que la cadena real
+# la API termina viendo la IP del proxy y el limite por IP se vuelve global.
+# Detras de Cloudflare + Traefik son 2.
+PROXY_SALTOS = max(1, env_entero('MANAREM_PROXY_SALTOS', 1))
 MAX_BODY = env_entero('MANAREM_MAX_BODY', 16 * 1024)
 SESION_DIAS = env_entero('MANAREM_SESION_DIAS', 7)
 SESIONES_POR_USUARIO = env_entero('MANAREM_SESIONES_POR_USUARIO', 5)
@@ -113,7 +118,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = MAX_BODY
 
 if CONFIA_PROXY:
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=PROXY_SALTOS, x_proto=1, x_host=1)
 
 CORS(
     app,
@@ -361,6 +366,20 @@ def salud():
         'usuarios': contar(conexion, 'usuarios'),
         'temas': contar(conexion, 'temas'),
         'opiniones': contar(conexion, 'opiniones'),
+    }), 200
+
+
+@app.route('/salud/ip', methods=['GET'])
+def salud_ip():
+    """Para verificar que PROXY_SALTOS quedo bien configurado.
+
+    Si `ip` no es la IP real del visitante, la cadena de proxies es mas larga o
+    mas corta de lo declarado y el rate limit por IP no esta funcionando.
+    """
+    return jsonify({
+        'ip': ip_cliente(),
+        'saltos_declarados': PROXY_SALTOS if CONFIA_PROXY else 0,
+        'x_forwarded_for': request.headers.get('X-Forwarded-For'),
     }), 200
 
 

@@ -1,0 +1,70 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "app.py"
+      - "db.py"
+      - "wsgi.py"
+      - "requirements*.txt"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/anatsu1/manarem-api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    # El paso de deploy se saltea solo si todavia no estan cargados los secrets
+    # del VPS, asi el build no queda en rojo por eso.
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # El VPS es aarch64 y los runners de GitHub son amd64: sin QEMU la
+      # imagen sale para la arquitectura equivocada y el pull falla.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push (ARM64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy al VPS
+        if: env.VPS_HOST != ''
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /srv/infrastructure/manarem
+            docker compose pull
+            docker compose up -d

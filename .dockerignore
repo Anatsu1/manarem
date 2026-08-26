@@ -1,0 +1,12 @@
+frontend/
+agents/
+deploy/
+venv/
+__pycache__/
+*.pyc
+*.db
+.git/
+.github/
+README.md
+.env
+.env.example
