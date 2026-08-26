@@ -88,6 +88,13 @@ def _parsear_redes(crudo):
 
 PROXIES_CONFIABLES = _parsear_redes(env_lista('MANAREM_PROXIES_CONFIABLES', []))
 
+# Redes en las que tiene que caer el que le habla al proxy para creerle a
+# IP_HEADER. Detras de Cloudflare van los rangos publicados en
+# cloudflare.com/ips-v4 y /ips-v6: sin este chequeo alcanza con pegarle directo
+# al VPS, salteando Cloudflare, para mandar la cabecera que uno quiera.
+# Vacio = no exigir nada (util cuando no hay CDN adelante).
+REDES_EDGE = _parsear_redes(env_lista('MANAREM_REDES_EDGE', []))
+
 # Token opcional para ver el detalle de /salud/ip. Sin el, ese endpoint solo
 # devuelve la IP que la API le atribuye a quien pregunta.
 DIAG_TOKEN = env_texto('MANAREM_DIAG_TOKEN', '')
@@ -195,18 +202,40 @@ class Limitador:
 limitador = Limitador()
 
 
+def _en_redes(texto, redes):
+    try:
+        direccion = ipaddress.ip_address((texto or '').strip())
+    except ValueError:
+        return False
+    return any(direccion in red for red in redes)
+
+
 def viene_de_proxy_confiable():
     if not PROXIES_CONFIABLES:
         return False
-    try:
-        origen = ipaddress.ip_address(request.remote_addr)
-    except (TypeError, ValueError):
-        return False
-    return any(origen in red for red in PROXIES_CONFIABLES)
+    return _en_redes(request.remote_addr, PROXIES_CONFIABLES)
+
+
+def peer_del_proxy():
+    """La IP de quien le hablo al proxy, segun lo que el proxy escribio.
+
+    Traefik reescribe X-Forwarded-For con la direccion real de su interlocutor
+    cuando no confia en el, asi que este valor no lo elige el cliente.
+    """
+    adelante = (request.headers.get('X-Forwarded-For') or '').strip()
+    if adelante:
+        return adelante.split(',')[-1].strip()
+    return (request.headers.get('X-Real-Ip') or '').strip()
+
+
+def viene_del_edge():
+    if not REDES_EDGE:
+        return True
+    return _en_redes(peer_del_proxy(), REDES_EDGE)
 
 
 def ip_cliente():
-    if IP_HEADER and viene_de_proxy_confiable():
+    if IP_HEADER and viene_de_proxy_confiable() and viene_del_edge():
         valor = (request.headers.get(IP_HEADER) or '').split(',')[0].strip()
         if valor:
             return valor
@@ -425,6 +454,8 @@ def salud_ip():
         respuesta.update({
             'origen': IP_HEADER or 'X-Forwarded-For',
             'proxy_confiable': viene_de_proxy_confiable(),
+            'peer_del_proxy': peer_del_proxy(),
+            'viene_del_edge': viene_del_edge(),
             'saltos_declarados': PROXY_SALTOS if CONFIA_PROXY else 0,
             'remote_addr': request.remote_addr,
             'x_forwarded_for': request.headers.get('X-Forwarded-For'),
